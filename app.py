@@ -26,28 +26,15 @@ class VITSProcess(multiprocessing.Process):
             self, 
             device_str,
             task_queue, 
+            result_queue,
             event_initialized, 
             event_is_speaking=None):
         multiprocessing.Process.__init__(self)
         self.device_str = device_str
-        self.task_queue = task_queue
+        self.task_queue = task_queue # VITS inference task queue
+        self.result_queue = result_queue # Audio data queue
         self.event_initialized = event_initialized
         self.event_is_speaking = event_is_speaking
-
-        self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
-        self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
-
-    def set_audio_stream_enabled(self, value):
-        self.enable_audio_stream.value = value
-    
-    def is_audio_stream_enabled(self):
-        return self.enable_audio_stream.value
-    
-    def set_enable_audio_stream_virtual(self, value):
-        self.enable_audio_stream_virtual.value = value
-    
-    def is_audio_stream_virtual_enabled(self):
-        return self.enable_audio_stream_virtual.value
 
     def get_text(self, text, hps):
         text_norm, clean_text = text_to_sequence(text, hps.symbols, hps.data.text_cleaners)
@@ -103,47 +90,6 @@ class VITSProcess(multiprocessing.Process):
 
         print("Loading Weights finished.")
 
-        # Maybe should use Multithreading to play audio.
-
-        # https://people.csail.mit.edu/hubert/pyaudio/docs/
-        # https://stackoverflow.com/questions/30675731/howto-stream-numpy-array-into-pyaudio-stream  
-        py_audio = pyaudio.PyAudio()
-        stream = py_audio.open(format=pyaudio.paFloat32,
-                channels=1,
-                rate=22050,
-                output=True)
-        
-        virtual_audio_input_device_index = None
-        virtual_audio_output_device_index = None
-
-        # Search for valid virtual audio input and output devices
-        for i in range(py_audio.get_device_count()):
-            device_info = py_audio.get_device_info_by_index(i)
-            if ("CABLE Output" in device_info['name'] and
-                device_info['hostApi'] == 0):
-                assert device_info['index'] == i 
-                virtual_audio_input_device_index = i
-            
-            if ("CABLE Input" in device_info['name'] and
-                device_info['hostApi'] == 0):
-                assert device_info['index'] == i
-                virtual_audio_output_device_index = i
-
-        virtual_audio_devices_are_found = True
-        if (virtual_audio_input_device_index is None or
-            virtual_audio_output_device_index is None):
-            print("Error: no valid virtual audio devices found!!!")
-            virtual_audio_devices_are_found = False
-
-        if virtual_audio_devices_are_found:
-            stream_virtual = py_audio.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    rate=22050,
-                    output=True,
-                    output_device_index=virtual_audio_output_device_index)
-
-        print("PYAudio is initialized.")
-
         self.event_initialized.set()
 
         while True:
@@ -158,12 +104,9 @@ class VITSProcess(multiprocessing.Process):
                 audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale, next_task.noise_scale_w, next_task.length_scale)
 
                 data = audio.astype(np.float32).tobytes()
-                if self.is_audio_stream_enabled():
-                    stream.write(data)
-                
-                if (self.is_audio_stream_virtual_enabled() and
-                    virtual_audio_devices_are_found):
-                    stream_virtual.write(data)
+
+                task = AudioTask(data)
+                self.result_queue.put(task)
                 
             except Exception as e:
                 print(e)
@@ -173,10 +116,6 @@ class VITSProcess(multiprocessing.Process):
                 if self.event_is_speaking is not None:
                     self.event_is_speaking.clear()
 
-        stream.close()
-        py_audio.terminate()
-        return
-
 class VITSTask:
     def __init__(self, text, language=0, speaker_id=2, noise_scale=0.5, noise_scale_w=0.5, length_scale=1.0):
         self.text = text
@@ -185,6 +124,111 @@ class VITSTask:
         self.noise_scale = noise_scale
         self.noise_scale_w = noise_scale_w
         self.length_scale = length_scale
+
+class AudioTask:
+    def __init__(self, data):
+        self.data = data
+
+class AudioPlayerProcess(multiprocessing.Process):
+    def __init__(self, task_queue, event_initalized):
+        super().__init__()
+        self.task_queue = task_queue
+        self.event_initalized = event_initalized
+
+        self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
+        self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
+
+        self.virtual_audio_devices_are_found = False # Maybe incorrect, because __init__ is run in the main thread
+    
+    def set_audio_stream_enabled(self, value):
+        self.enable_audio_stream.value = value
+    
+    def is_audio_stream_enabled(self):
+        return self.enable_audio_stream.value
+    
+    def set_enable_audio_stream_virtual(self, value):
+        self.enable_audio_stream_virtual.value = value
+    
+    def is_audio_stream_virtual_enabled(self):
+        return self.enable_audio_stream_virtual.value
+
+    def get_virtual_audio_indices(self):
+        assert self.py_audio is not None
+
+        self.virtual_audio_input_device_index = None
+        self.virtual_audio_output_device_index = None
+
+        # Search for valid virtual audio input and output devices
+        for i in range(self.py_audio.get_device_count()):
+            device_info = self.py_audio.get_device_info_by_index(i)
+            if ("CABLE Output" in device_info['name'] and
+                device_info['hostApi'] == 0):
+                assert device_info['index'] == i 
+                self.virtual_audio_input_device_index = i
+            
+            if ("CABLE Input" in device_info['name'] and
+                device_info['hostApi'] == 0):
+                assert device_info['index'] == i
+                self.virtual_audio_output_device_index = i
+
+        if (self.virtual_audio_input_device_index is None or
+            self.virtual_audio_output_device_index is None):
+            print("Error: no valid virtual audio devices found!!!")
+            self.virtual_audio_devices_are_found = False
+        else:
+            self.virtual_audio_devices_are_found = True
+
+    def run(self):
+        proc_name = self.name
+        print(f"Initializing {proc_name}...")
+
+        # https://people.csail.mit.edu/hubert/pyaudio/docs/
+        # https://stackoverflow.com/questions/30675731/howto-stream-numpy-array-into-pyaudio-stream  
+        self.py_audio = pyaudio.PyAudio()
+        stream = self.py_audio.open(format=pyaudio.paFloat32,
+                channels=1,
+                rate=22050,
+                output=True)
+        
+        self.get_virtual_audio_indices()
+        
+        stream_virtual = None
+        if self.virtual_audio_devices_are_found:
+            stream_virtual = self.py_audio.open(format=pyaudio.paFloat32,
+            channels=1,
+            rate=22050,
+            output=True,
+            output_device_index=self.virtual_audio_output_device_index)
+
+        print("PYAudio is initialized.")
+        
+        self.event_initalized.set()
+
+        while True:
+            next_task = self.task_queue.get()
+            if next_task is None:
+                # Poison pill means shutdown
+                print(f"{proc_name}: Exiting")
+                break
+            try:
+                print(f"{proc_name} is working...")
+                data = next_task.data
+
+                if self.is_audio_stream_enabled():
+                    stream.write(data)
+                
+                if (self.is_audio_stream_virtual_enabled() and
+                    self.virtual_audio_devices_are_found):
+                    stream_virtual.write(data)
+                
+            except Exception as e:
+                print(e)
+                # print(f"Errors ocurrs in the process {proc_name}")
+        
+        stream.close()
+        stream_virtual.close()
+        self.py_audio.terminate()
+
 
 # Use your own token
 access_token = ""
@@ -326,12 +370,23 @@ class BarragePollingProcess(multiprocessing.Process):
 
 
 if __name__ == '__main__':
-    vits_task_queue = multiprocessing.JoinableQueue()
+    room_id = "14655481"
     prompt_qeue = multiprocessing.Queue()
+
+    event_barrage_polling_process_initialized = multiprocessing.Event()
+    event_barrage_polling_process_stop = multiprocessing.Event()
+
+    barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
+    barrage_polling_process.start()
+
+    vits_task_queue = multiprocessing.JoinableQueue()
+
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
     chat_gpt_process = ChatGPTProcess(access_token, prompt_qeue, vits_task_queue, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
+
+    audio_task_queue = multiprocessing.Queue()
 
     event_vits_process_initialized = multiprocessing.Event()
     event_is_speaking = multiprocessing.Event()
@@ -342,20 +397,19 @@ if __name__ == '__main__':
     vits_process = VITSProcess(
                             device_str,
                             vits_task_queue,
+                            audio_task_queue,
                             event_vits_process_initialized,
                             event_is_speaking)
     vits_process.start()
 
-    room_id = "14655481"
-    event_barrage_polling_process_initialized = multiprocessing.Event()
-    event_barrage_polling_process_stop = multiprocessing.Event()
-
-    barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
-    barrage_polling_process.start()
+    event_audio_player_process_initialized = multiprocessing.Event()
+    audio_player_process = AudioPlayerProcess(audio_task_queue, event_audio_player_process_initialized)
+    audio_player_process.start()
 
     event_vits_process_initialized.wait()
     event_chat_gpt_process_initialized.wait()
     event_barrage_polling_process_initialized.wait()
+    event_audio_player_process_initialized.wait()
 
     while True:
         user_input = input("Please enter commands:\n")
@@ -363,24 +417,24 @@ if __name__ == '__main__':
             break
         elif user_input == '0':
             if chat_gpt_process.is_vits_enabled():
-                chat_gpt_process.set_vits_enabled(True)
+                chat_gpt_process.set_vits_enabled(False)
                 print("Disable VITS")
             else:
-                chat_gpt_process.set_vits_enabled(False)
+                chat_gpt_process.set_vits_enabled(True)
                 print("Enable VITS")
         elif user_input == '1':
-            if vits_process.is_audio_stream_enabled():
-                vits_process.set_audio_stream_enabled(False)
+            if audio_player_process.is_audio_stream_enabled():
+                audio_player_process.set_audio_stream_enabled(False)
                 print("Disable Audio stream")
             else:
-                vits_process.set_audio_stream_enabled(True)
+                audio_player_process.set_audio_stream_enabled(True)
                 print("Enable Audio stream")
         elif user_input == '2':
-            if vits_process.is_audio_stream_virtual_enabled():
-                vits_process.set_enable_audio_stream_virtual(False)
+            if audio_player_process.is_audio_stream_virtual_enabled():
+                audio_player_process.set_enable_audio_stream_virtual(False)
                 print("Disable virtual audio stream")
             else:
-                vits_process.set_enable_audio_stream_virtual(True)
+                audio_player_process.set_enable_audio_stream_virtual(True)
                 print("Enable virtual audio stream")
         elif user_input == '3':
             if barrage_polling_process.is_polling_enabled():
@@ -403,12 +457,17 @@ if __name__ == '__main__':
             else:
                 chat_gpt_process.set_streamed_enabled(True)
                 print("Enable chatgpt streamed")
+        elif user_input == '9':
+            print("Test VITS and audio player")
+            test_text = "测试语音合成和音频播放。"
+            vits_task_queue.put(VITSTask(test_text))
         else:
             prompt_qeue.put(user_input)
 
     event_barrage_polling_process_stop.set()
     prompt_qeue.put(None)
     vits_task_queue.put(None)
+    audio_task_queue.put(None)
 
     vits_process.join()
     chat_gpt_process.join()
