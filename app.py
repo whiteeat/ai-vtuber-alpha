@@ -24,19 +24,30 @@ import requests
 class VITSProcess(multiprocessing.Process):
     def __init__(
             self, 
-            device,
+            device_str,
             task_queue, 
-            event_enable_audio_stream,
-            event_enable_audio_stream_vitrual,
             event_initialized, 
             event_is_speaking=None):
         multiprocessing.Process.__init__(self)
         self.device_str = device_str
         self.task_queue = task_queue
-        self.event_enable_audio_stream = event_enable_audio_stream
-        self.event_enable_audio_stream_vitrual = event_enable_audio_stream_vitrual
         self.event_initialized = event_initialized
         self.event_is_speaking = event_is_speaking
+
+        self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
+        self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
+
+    def set_audio_stream_enabled(self, value):
+        self.enable_audio_stream.value = value
+    
+    def is_audio_stream_enabled(self):
+        return self.enable_audio_stream.value
+    
+    def set_enable_audio_stream_virtual(self, value):
+        self.enable_audio_stream_virtual.value = value
+    
+    def is_audio_stream_virtual_enabled(self):
+        return self.enable_audio_stream_virtual.value
 
     def get_text(self, text, hps):
         text_norm, clean_text = text_to_sequence(text, hps.symbols, hps.data.text_cleaners)
@@ -146,11 +157,11 @@ class VITSProcess(multiprocessing.Process):
                 print(f"{proc_name} is working...")
                 audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale, next_task.noise_scale_w, next_task.length_scale)
 
-                data = audio.astype(np.float32).tostring()
-                if self.event_enable_audio_stream.is_set():
+                data = audio.astype(np.float32).tobytes()
+                if self.is_audio_stream_enabled():
                     stream.write(data)
                 
-                if (self.event_enable_audio_stream_vitrual.is_set() and
+                if (self.is_audio_stream_virtual_enabled() and
                     virtual_audio_devices_are_found):
                     stream_virtual.write(data)
                 
@@ -179,15 +190,21 @@ class VITSTask:
 access_token = ""
 
 class ChatGPTProcess(multiprocessing.Process):
-    def __init__(self, access_token, prompt_qeue, vits_task_queue, event_enable_vits, event_initialized):
+    def __init__(self, access_token, prompt_qeue, vits_task_queue, event_initialized):
         super().__init__()
         self.access_token = access_token
         self.prompt_qeue = prompt_qeue
         self.vits_task_queue = vits_task_queue
-        self.event_enable_vits = event_enable_vits
         self.event_initialized = event_initialized
 
         self.use_streamed = multiprocessing.Value(ctypes.c_bool, False)
+        self.enable_vits = multiprocessing.Value(ctypes.c_bool, False)
+
+    def set_vits_enabled(self, value):
+        self.enable_vits.value = value
+
+    def is_vits_enabled(self):
+        return self.enable_vits.value
 
     def set_streamed_enabled(self, value):
         self.use_streamed.value = value
@@ -212,39 +229,51 @@ class ChatGPTProcess(multiprocessing.Process):
                 print(f"{proc_name}: Exiting")
                 break
             
-            if not self.is_streamed_enabled():
-                for data in chatbot.ask(prompt):
-                    response = data["message"]
-                print(response)
-                if self.event_enable_vits.is_set():
-                    vits_task = VITSTask(response)
-                    self.vits_task_queue.put(vits_task)
-            else:
-                # WIP...
-                prev_text = ""
-                for data in chatbot.ask(prompt):
-                    message = data["message"][len(prev_text):]
-                    print(message, end="", flush=True)
-                    prev_text = data["message"]
-
-                    if self.event_enable_vits.is_set():
-                        vits_task = VITSTask(message)
+            try:
+                if not self.is_streamed_enabled():
+                    for data in chatbot.ask(prompt):
+                        response = data["message"]
+                    print(response)
+                    if self.is_vits_enabled():
+                        vits_task = VITSTask(response)
                         self.vits_task_queue.put(vits_task)
+                else:
+                    # WIP...
+                    prev_text = ""
+                    for data in chatbot.ask(prompt):
+                        message = data["message"][len(prev_text):]
+                        print(message, end="", flush=True)
+                        prev_text = data["message"]
+
+                        if self.is_vits_enabled():
+                            vits_task = VITSTask(message)
+                            self.vits_task_queue.put(vits_task)
+            except Exception as e:
+                print(e)
+
 
 class BarragePollingProcess(multiprocessing.Process):
-    def __init__(self, roomd_id, prompt_qeue, event_enable_polling, event_initialized, event_stop):
+    def __init__(self, roomd_id, prompt_qeue, event_initialized, event_stop):
         super().__init__()
         self.room_id = roomd_id
         self.prompt_qeue = prompt_qeue
-        self.event_enable_polling = event_enable_polling
         self.event_initialized = event_initialized
         self.event_stop = event_stop
 
         self.info_last = None
+
         # https://stackoverflow.com/questions/32822013/python-share-values
+        self.enable_polling = multiprocessing.Value(ctypes.c_bool, False)
         self.enable_logging = multiprocessing.Value(ctypes.c_bool, False)
+
         url = "http://api.live.bilibili.com/ajax/msg?roomid="
         self.url = url + self.room_id
+
+    def set_polling_enabled(self, value):
+        self.enable_polling.value = value
+
+    def is_polling_enabled(self):
+        return self.enable_polling.value
 
     def set_logging_enabled(self, value):
         self.enable_logging.value = value
@@ -275,7 +304,7 @@ class BarragePollingProcess(multiprocessing.Process):
         self.event_initialized.set()
 
         while True:
-            if self.event_enable_polling.is_set():
+            if self.is_polling_enabled():
                 print(f"{proc_name} is working...")
                 try:
                     barrage_last = self.get_barrage()
@@ -299,17 +328,11 @@ class BarragePollingProcess(multiprocessing.Process):
 if __name__ == '__main__':
     vits_task_queue = multiprocessing.JoinableQueue()
     prompt_qeue = multiprocessing.Queue()
-    event_enable_vits = multiprocessing.Event()
     event_chat_gpt_process_initialized = multiprocessing.Event()
-    # event_enable_vits.set()
 
-    chat_gpt_process = ChatGPTProcess(access_token, prompt_qeue, vits_task_queue, event_enable_vits, event_chat_gpt_process_initialized)
+    chat_gpt_process = ChatGPTProcess(access_token, prompt_qeue, vits_task_queue, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
 
-    event_enable_audio_stream = multiprocessing.Event()
-    event_enable_audio_stream_vitrual = multiprocessing.Event()
-    event_enable_audio_stream.set()
-    event_enable_audio_stream_vitrual.set()
     event_vits_process_initialized = multiprocessing.Event()
     event_is_speaking = multiprocessing.Event()
 
@@ -318,19 +341,16 @@ if __name__ == '__main__':
 
     vits_process = VITSProcess(
                             device_str,
-                            vits_task_queue,  
-                            event_enable_audio_stream,
-                            event_enable_audio_stream_vitrual,
+                            vits_task_queue,
                             event_vits_process_initialized,
                             event_is_speaking)
     vits_process.start()
 
     room_id = "14655481"
-    event_enable_barrage_polling = multiprocessing.Event()
     event_barrage_polling_process_initialized = multiprocessing.Event()
     event_barrage_polling_process_stop = multiprocessing.Event()
 
-    barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_enable_barrage_polling, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
+    barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
     barrage_polling_process.start()
 
     event_vits_process_initialized.wait()
@@ -342,32 +362,32 @@ if __name__ == '__main__':
         if user_input == 'esc':
             break
         elif user_input == '0':
-            if event_enable_vits.is_set():
-                event_enable_vits.clear()
+            if chat_gpt_process.is_vits_enabled():
+                chat_gpt_process.set_vits_enabled(True)
                 print("Disable VITS")
             else:
-                event_enable_vits.set()
+                chat_gpt_process.set_vits_enabled(False)
                 print("Enable VITS")
         elif user_input == '1':
-            if event_enable_audio_stream.is_set():
-                event_enable_audio_stream.clear()
+            if vits_process.is_audio_stream_enabled():
+                vits_process.set_audio_stream_enabled(False)
                 print("Disable Audio stream")
             else:
-                event_enable_audio_stream.set()
+                vits_process.set_audio_stream_enabled(True)
                 print("Enable Audio stream")
         elif user_input == '2':
-            if event_enable_audio_stream_vitrual.is_set():
-                event_enable_audio_stream_vitrual.clear()
+            if vits_process.is_audio_stream_virtual_enabled():
+                vits_process.set_enable_audio_stream_virtual(False)
                 print("Disable virtual audio stream")
             else:
-                event_enable_audio_stream_vitrual.set()
+                vits_process.set_enable_audio_stream_virtual(True)
                 print("Enable virtual audio stream")
         elif user_input == '3':
-            if event_enable_barrage_polling.is_set():
-                event_enable_barrage_polling.clear()
+            if barrage_polling_process.is_polling_enabled():
+                barrage_polling_process.set_polling_enabled(False)
                 print("Disable barrage polling")
             else:
-                event_enable_barrage_polling.set()
+                barrage_polling_process.set_polling_enabled(True)
                 print("Enable barrage polling")
         elif user_input == '4':
             if barrage_polling_process.is_logging_enabled():
