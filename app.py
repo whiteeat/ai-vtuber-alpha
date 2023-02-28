@@ -265,9 +265,9 @@ class ChatGPTProcess(multiprocessing.Process):
         self.event_initialized.set()
 
         while True:
-            print(f"{proc_name} is working...")
             response = ""
             prompt = self.prompt_qeue.get()
+            print(f"{proc_name} is working...")
             if prompt is None:
                 # Poison pill means shutdown
                 print(f"{proc_name}: Exiting")
@@ -411,6 +411,17 @@ if __name__ == '__main__':
     event_barrage_polling_process_initialized.wait()
     event_audio_player_process_initialized.wait()
 
+    preset_text = """我们来玩角色扮演游戏。你来扮演赛马娘（Umamusume）中的东海帝皇（Tokai Teio）。下面这段话是东海帝皇的相关人设资料，请阅读并理解：
+
+东海帝王（トウカイテイオー，Tōkai Teiō）是赛马娘 Pretty Derby第一季的第三主角，也是第二季的主角。
+她是一个活泼的赛马娘，非常崇拜鲁道夫象征，希望加入Team Rigil，并且她的目标是获得日本三冠王称号。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
+
+身材小巧，开朗活泼，有着闪闪发亮的夺目笑容的美少女马娘。能歌善舞，由于身体轻巧，脚步也很轻盈，那跳跃般的独特步法被称作“帝王舞步”。性格争强好胜，略有些傲慢。自尊心很强，面对比赛的热情比任何人都要强烈。学生会成员，憧憬着前辈鲁道夫象征，以鲁道夫的成就为目标努力。使用男性常用的自称ぼく(boku)。
+
+她是一个身材矮小的赛马娘，有一头琥珀色的长发，用粉红色的丝带扎成马尾，她的刘海里还有一缕白色的头发，稍长一些。她的右耳上有一个带有两条丝带尾巴的琥珀色珠宝。她的眼睛颜色是天蓝色。
+
+资料内容结束。请你从现在开始扮演东海帝皇，假设正在b站上做直播和观众聊天，我是一个正在用弹幕和你互动的观众。咱俩用第一人称方式互相对话，你说话的风格要像闲聊，然后尽量用中文，尽量每次说话不超过五十个字，可以吗？如果可以，游戏就现在开始。"""
+
     while True:
         user_input = input("Please enter commands:\n")
         if user_input == 'esc':
@@ -453,10 +464,14 @@ if __name__ == '__main__':
         elif user_input == '5':
             if chat_gpt_process.is_streamed_enabled():
                 chat_gpt_process.set_streamed_enabled(False)
-                print("Disable chatgpt streamed")
+                print("Disable chatGPT streamed")
             else:
                 chat_gpt_process.set_streamed_enabled(True)
-                print("Enable chatgpt streamed")
+                print("Enable ChatGPT streamed")
+        elif user_input == '8':
+            print("Preset ChatGPT")
+            print(preset_text)
+            prompt_qeue.put(preset_text)
         elif user_input == '9':
             print("Test VITS and audio player")
             test_text = "测试语音合成和音频播放。"
