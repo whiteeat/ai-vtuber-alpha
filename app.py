@@ -262,6 +262,12 @@ class ChatGPTProcess(multiprocessing.Process):
 
         chatbot = Chatbot(config={'access_token': self.access_token})
 
+        punctuations_to_split_paragraphs = set("。！？")
+        punctuations_to_split_paragraphs_longer = set(",")
+
+        min_sentence_length = 16
+        sentence_longer_threshold = 32
+
         self.event_initialized.set()
 
         while True:
@@ -282,16 +288,42 @@ class ChatGPTProcess(multiprocessing.Process):
                         vits_task = VITSTask(response)
                         self.vits_task_queue.put(vits_task)
                 else:
-                    # WIP...
-                    prev_text = ""
-                    for data in chatbot.ask(prompt):
-                        message = data["message"][len(prev_text):]
-                        print(message, end="", flush=True)
-                        prev_text = data["message"]
+                    prev_message = ""
+                    prompt_is_skipped = False
+                    new_sentence = ""
+                    for data in chatbot.ask(
+                        prompt
+                    ):
+                        message = data["message"]
+                        new_words = message[len(prev_message):]
+                        print(new_words, end="", flush=True)
 
-                        if self.is_vits_enabled():
-                            vits_task = VITSTask(message)
-                            self.vits_task_queue.put(vits_task)
+                        if not prompt_is_skipped:
+                            # The streamed response may contain the prompt,
+                            # So the prompt in the streamed response should be skipped
+                            new_sentence += new_words
+                            if new_sentence == prompt[:len(new_sentence)]:
+                                continue
+                            else:
+                                prompt_is_skipped = True
+                                new_sentence = ""
+
+                        should_do_vits = False
+                        new_sentence += new_words
+                        if len(new_sentence) >= min_sentence_length:
+                            if new_sentence[-1] in punctuations_to_split_paragraphs:
+                                should_do_vits = True
+                            elif len(new_sentence) >= sentence_longer_threshold:
+                                if new_sentence[-1] in punctuations_to_split_paragraphs_longer:
+                                    should_do_vits = True
+                        
+                        if should_do_vits:
+                            if self.is_vits_enabled():
+                                vits_task = VITSTask(new_sentence)
+                                self.vits_task_queue.put(vits_task)
+                            new_sentence = ""
+
+                        prev_message = message
             except Exception as e:
                 print(e)
 
