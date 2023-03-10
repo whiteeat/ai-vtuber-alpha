@@ -1,38 +1,63 @@
-from revChatGPT.V1 import Chatbot
+import os
+from revChatGPT.V1 import Chatbot as ChatGPTV1
+from revChatGPT.V3 import Chatbot as ChatGPTV3
 
-access_token = ""
+USE_API_KEY = True
+USE_ACCESS_TOKEN = True
 
-chatbot = Chatbot(config={
-    "access_token": access_token
-})
+prompt_cn = "你好！"
+prompt_en = "Hello!"
 
-prompt = "你好！"
-response = ""
+if USE_API_KEY:
+    api_key = ""
+    chatbot = ChatGPTV3(api_key)
 
-for data in chatbot.ask(
-    prompt
-):
-    response = data["message"]
-
-print(response)
-print()
-print("========================================")
+    result = chatbot.ask(prompt_cn)
+    print(result)
+    print()
 
 
-print("Chinese Test: ")
-prev_text = ""
-for data in chatbot.ask(
-    "你好"
-):
-    message = data["message"][len(prev_text):]
-    print(message, flush=True)
-    prev_text = data["message"]
+if USE_ACCESS_TOKEN:
+    # The address to get access_token:
+    # https://chat.openai.com/api/auth/session
+    access_token = ""
 
-print("English Test: ")
-prev_text = ""
-for data in chatbot.ask(
-    "Hello"
-):
-    message = data["message"][len(prev_text):]
-    print(message, flush=True)
-    prev_text = data["message"]
+    chatbot = ChatGPTV1(config={
+        "access_token": access_token
+    })
+
+    # email = ""
+    # password = ""
+
+    # chatbot = Chatbot(config={
+    #     "email": email,
+    #     "password": password
+    # })
+
+    for data in chatbot.ask(
+        prompt_cn
+    ):
+        response = data["message"]
+
+    print(response)
+    print()
+    print("========================================")
+
+
+    print("Chinese Test: ")
+    prev_text = ""
+    for data in chatbot.ask(
+        prompt_cn
+    ):
+        message = data["message"][len(prev_text):]
+        print(message, flush=True)
+        prev_text = data["message"]
+
+    print("English Test: ")
+    prev_text = ""
+    for data in chatbot.ask(
+        prompt_en
+    ):
+        message = data["message"][len(prev_text):]
+        print(message, flush=True)
+        prev_text = data["message"]

@@ -1,17 +1,25 @@
+# coding=utf8
 import sys
 import multiprocessing
 import ctypes
 
-from revChatGPT.V1 import Chatbot as ChatbotV1
-from revChatGPT.V3 import Chatbot as ChatbotV3
+import asyncio
+import zlib
+from aiowebsocket.converses import AioWebSocket
+import json
 
 import time
 import numpy as np
 
+import requests
+
+import pyaudio
+
 from torch import no_grad, LongTensor
 from torch import device as torch_device
 
-import pyaudio
+from revChatGPT.V1 import Chatbot as ChatbotV1
+from revChatGPT.V3 import Chatbot as ChatbotV3
 
 sys.path.append("vits")
 
@@ -19,8 +27,6 @@ import vits.utils as utils
 import vits.commons as commons
 from vits.models import SynthesizerTrn
 from vits.text import text_to_sequence
-
-import requests
 
 class VITSProcess(multiprocessing.Process):
     def __init__(
@@ -235,11 +241,11 @@ class AudioPlayerProcess(multiprocessing.Process):
 access_token = ""
 
 class ChatGPTProcess(multiprocessing.Process):
-    def __init__(self, access_token, api_key, prompt_qeue, vits_task_queue, event_initialized):
+    def __init__(self, access_token, api_key, prompt_queue, vits_task_queue, event_initialized):
         super().__init__()
         self.access_token = access_token
         self.api_key = api_key
-        self.prompt_qeue = prompt_qeue
+        self.prompt_queue = prompt_queue
         self.vits_task_queue = vits_task_queue
         self.event_initialized = event_initialized
 
@@ -269,9 +275,11 @@ class ChatGPTProcess(multiprocessing.Process):
             use_access_token = True
             print("Use access token")
         elif self.api_key is not None:
-            chatbot = ChatbotV3(self.api_key)
+            # engine_str = "gpt-3.5-turbo-0301"
+            # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
+            chatbot = ChatbotV3(api_key=self.api_key, temperature=0.7, system_prompt=preset_text)
             use_api_key = True
-            print("use API key")
+            print("Use API key")
         
         assert use_access_token or use_api_key, "Error: use_access_token and use_api_key are both False!"
 
@@ -285,34 +293,49 @@ class ChatGPTProcess(multiprocessing.Process):
 
         while True:
             response = ""
-            prompt = self.prompt_qeue.get()
+            chat_task = self.prompt_queue.get()
             print(f"{proc_name} is working...")
-            if prompt is None:
+            if chat_task is None:
                 # Poison pill means shutdown
                 print(f"{proc_name}: Exiting")
                 break
             
-            header = prompt[:32]
+            header = chat_task.message[:32]
             if header == "#reset":
                 try:
                     print("Reset ChatGPT")
                     print(preset_text)
                     if use_api_key:
-                        response = chatbot.ask(preset_text)
+                        chatbot.conversation.clear()
                     elif use_access_token:
+                        # Outdated
                         for data in chatbot.ask(preset_text):
                             response = data["message"]
-                    print(response)
+                    # print(response)
                 except Exception as e:
                     print(e)
                     print("Reset fail!")
                 finally:
                     continue
+            
+            user_name = chat_task.user_name
+            msg = chat_task.message
+            task_type = chat_task.type
+            prompt_msg = msg
 
             try:
+                repeat_user_message = True
+                repeat_message = None
+                if task_type == "event":
+                    repeat_user_message = False
+                else:
+                    repeat_message = f"{user_name}说：“{msg}”"
+                    # prompt_msg = f"（{user_name}对你说：)“{msg}”"
+                    prompt_msg = f"我是{user_name}，{msg}"
+
                 if use_api_key:
                     new_sentence = ""
-                    for data in chatbot.ask(prompt):
+                    for data in chatbot.ask(prompt=prompt_msg, convo_id=user_name):
                         print(data, end="", flush=True)
 
                         should_split = False
@@ -324,11 +347,18 @@ class ChatGPTProcess(multiprocessing.Process):
                                 if new_sentence[-1] in punctuations_to_split_text_longer:
                                     should_split = True
 
-                        if should_split:
-                            if self.is_vits_enabled():
+                        # If code reaches here, meaning that the request to ChatGPT is successful.
+                        if self.is_vits_enabled():
+                            if repeat_user_message:
+                                vits_task = VITSTask(repeat_message.strip())
+                                self.vits_task_queue.put(vits_task)
+                                # time.sleep(1.0) # Simulate speech pause
+                                repeat_user_message = False
+
+                            if should_split:
                                 vits_task = VITSTask(new_sentence.strip())
                                 self.vits_task_queue.put(vits_task)
-                            new_sentence = ""
+                                new_sentence = ""
                     
                     if len(new_sentence) > 0:
                         if self.is_vits_enabled():
@@ -337,7 +367,7 @@ class ChatGPTProcess(multiprocessing.Process):
 
                 elif use_access_token:
                     if not self.is_streamed_enabled():
-                        for data in chatbot.ask(prompt):
+                        for data in chatbot.ask(msg):
                             response = data["message"]
                         print(response)
                         if self.is_vits_enabled():
@@ -348,7 +378,7 @@ class ChatGPTProcess(multiprocessing.Process):
                         prompt_is_skipped = False
                         new_sentence = ""
                         for data in chatbot.ask(
-                            prompt,
+                            msg,
                             # timeout=120
                         ):
                             message = data["message"]
@@ -359,7 +389,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 # The streamed response may contain the prompt,
                                 # So the prompt in the streamed response should be skipped
                                 new_sentence += new_words
-                                if new_sentence == prompt[:len(new_sentence.strip())]:
+                                if new_sentence == msg[:len(new_sentence.strip())]:
                                     continue
                                 else:
                                     prompt_is_skipped = True
@@ -383,11 +413,176 @@ class ChatGPTProcess(multiprocessing.Process):
                             prev_message = message
             except Exception as e:
                 print(e)
-                if self.is_vits_enabled():
-                    text = "不好意思，刚才我走神了，请问你刚才说什么?"
-                    task = VITSTask(text)
-                    self.vits_task_queue.put(task)
+                if task_type == 'chat':
+                    if self.is_vits_enabled():
+                        text = "不好意思，刚才我走神了，请问你刚才说什么?"
+                        task = VITSTask(text)
+                        self.vits_task_queue.put(task)
 
+
+class ChatTask:
+    def __init__(self, user_name, message, type_str='chat'):
+        self.user_name = user_name
+        self.message = message
+        self.type = type_str
+
+class LiveCommentProcess(multiprocessing.Process):
+    def __init__(self, room_id, prompt_queue, event_initialized, event_stop):
+        super().__init__()
+        self.room_id = room_id
+        self.prompt_queue = prompt_queue
+        self.event_initialized = event_initialized
+        self.event_stop = event_stop
+
+        self.enable_response = multiprocessing.Value(ctypes.c_bool, False)
+
+    def set_response_enabled(self, value):
+        self.enable_response.value = value
+
+    def is_response_enabled(self):
+        return self.enable_response.value
+
+    async def startup(self, room_id):
+        # https://blog.csdn.net/Sharp486/article/details/122466308
+        remote = 'ws://broadcastlv.chat.bilibili.com:2244/sub'
+
+        data_raw = '000000{headerLen}0010000100000007000000017b22726f6f6d6964223a{roomid}7d'
+        data_raw = data_raw.format(headerLen=hex(27 + len(room_id))[2:],
+                                roomid=''.join(map(lambda x: hex(ord(x))[2:], list(room_id))))
+
+        async with AioWebSocket(remote) as aws:
+            converse = aws.manipulator
+            await converse.send(bytes.fromhex(data_raw))
+            task_recv = asyncio.create_task(self.recvDM(converse))
+            task_heart_beat = asyncio.create_task(self.sendHeartBeat(converse))
+            tasks = [task_recv, task_heart_beat]
+            await asyncio.wait(tasks)
+
+    async def sendHeartBeat(self, websocket):
+        hb='00 00 00 10 00 10 00 01  00 00 00 02 00 00 00 01'
+
+        while True:
+            await asyncio.sleep(30)
+            await websocket.send(bytes.fromhex(hb))
+            print('[Notice] Sent HeartBeat.')
+
+            if self.event_stop.is_set():
+                break
+
+    async def recvDM(self, websocket):
+        while True:
+            recv_text = await websocket.receive()
+
+            if recv_text == None:
+                recv_text = b'\x00\x00\x00\x1a\x00\x10\x00\x01\x00\x00\x00\x08\x00\x00\x00\x01{"code":0}'
+
+            self.processDM(recv_text)
+
+            if self.event_stop.is_set():
+                break
+
+    def processDM(self, data):
+        # 获取数据包的长度，版本和操作类型
+        packetLen = int(data[:4].hex(), 16)
+        ver = int(data[6:8].hex(), 16)
+        op = int(data[8:12].hex(), 16)
+
+        # 有的时候可能会两个数据包连在一起发过来，所以利用前面的数据包长度判断，
+        if (len(data) > packetLen):
+            self.processDM(data[packetLen:])
+            data = data[:packetLen]
+
+        # 有时会发送过来 zlib 压缩的数据包，这个时候要去解压。
+        if (ver == 2):
+            data = zlib.decompress(data[16:])
+            self.processDM(data)
+            return
+
+        # ver 为1的时候为进入房间后或心跳包服务器的回应。op 为3的时候为房间的人气值。
+        if (ver == 1):
+            if (op == 3):
+                print('[RENQI]  {}'.format(int(data[16:].hex(), 16)))
+            return
+
+
+        # ver 不为2也不为1目前就只能是0了，也就是普通的 json 数据。
+        # op 为5意味着这是通知消息，cmd 基本就那几个了。
+        if (op == 5):
+            try:
+                jd = json.loads(data[16:].decode('utf-8', errors='ignore'))
+                if (jd['cmd'] == 'DANMU_MSG'):
+                    user_name = jd['info'][2][1]
+                    msg = jd['info'][1]
+                    print('[DANMU] ', user_name, ': ', msg)
+                
+                    if self.is_response_enabled():
+                        task = ChatTask(user_name, msg)
+                        self.prompt_queue.put(task)
+
+                elif (jd['cmd'] == 'SEND_GIFT'):
+                    print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
+                        jd['data']['giftName'])
+                    user_name = jd['data']['uname']
+                    gift_num = jd['data']['num']
+                    gift_name = jd['data']['giftName']
+                    type_str = "event"
+
+                    # msg = f"（{user_name}投喂了{gift_num}个{gift_name}礼物给你。）"
+                    msg = f"我是{user_name}，刚刚投喂了{gift_num}个{gift_name}礼物给你！"
+                    if self.is_response_enabled():
+                        task = ChatTask("default", msg, type_str)
+                        self.prompt_queue.put(task)
+
+                elif (jd['cmd'] == 'LIKE_INFO_V3_CLICK'):
+                    user_name = jd['data']['uname']
+                    print(f"[LIKE] {user_name}")
+                    type_str = 'event'
+                    msg = f"我是{user_name}，刚刚在你的直播间点了赞哦！"
+                    if self.is_response_enabled():
+                        task = ChatTask("default", msg, type_str)
+                        self.prompt_queue.put(task)
+
+                elif (jd['cmd'] == 'LIVE'):
+                    print('[Notice] LIVE Start!')
+                elif (jd['cmd'] == 'PREPARING'):
+                    print('[Notice] LIVE Ended!')
+                elif (jd['cmd'] == 'INTERACT_WORD'):
+                    user_name = jd['data']['uname']
+                    msg_type = jd['data']['msg_type']
+                    type_str = "event"
+                    # 进场
+                    if msg_type == 1:
+                        # msg = f"（{user_name}进入了你的直播间。）"
+                        msg = f"主播好！我是{user_name}，来你的直播间了！"
+                        print(f"[INTERACT_WORD] {msg}")
+                    # 关注
+                    elif msg_type == 2:
+                        # msg = f"（{user_name}关注了你的直播间。）"
+                        msg = f"我是{user_name}，刚刚关注了你的直播间！"
+                        print(f"[INTERACT_WORD] {msg}")
+
+                    if self.is_response_enabled():
+                        task = ChatTask("default", msg, type_str)
+                        self.prompt_queue.put(task)
+                else:
+                    print('[OTHER] ', jd['cmd'])
+            except Exception as e:
+                print(e)
+                pass
+
+    def run(self):
+        proc_name = self.name
+        print(f"Initializing {proc_name}...")
+        
+        self.event_initialized.set()
+
+        print(f"{proc_name} is working...")
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.startup(self.room_id))
+        except Exception as e:
+            print(e)
+            print('退出')
 
 class BarragePollingProcess(multiprocessing.Process):
     def __init__(self, room_id, prompt_qeue, event_initialized, event_stop):
@@ -494,34 +689,38 @@ class BarragePollingProcess(multiprocessing.Process):
 
             time.sleep(4.0)
 
-preset_text = """我们来玩角色扮演游戏。你来扮演赛马娘（Umamusume）中的东海帝皇（Tokai Teio）。下面这段话是东海帝皇的相关人设资料，请阅读并理解：
+preset_text = f"""下面这段话是东海帝皇的相关人设资料，请阅读并理解：
 
-东海帝王（トウカイテイオー，Tōkai Teiō）是赛马娘 Pretty Derby第一季的第三主角，也是第二季的主角。
-她是一个活泼的赛马娘，非常崇拜鲁道夫象征，希望加入Team Rigil，并且她的目标是获得日本三冠王称号。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
+东海帝皇是赛马娘第一季的第三主角，也是第二季的主角。她是一个活泼的赛马娘，非常崇拜鲁道夫象征，希望加入Team Rigil，并且她的目标是获得日本三冠王称号。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
 
 身材小巧，开朗活泼，有着闪闪发亮的夺目笑容的美少女马娘。能歌善舞，由于身体轻巧，脚步也很轻盈，那跳跃般的独特步法被称作“帝王舞步”。性格争强好胜，略有些傲慢。自尊心很强，面对比赛的热情比任何人都要强烈。学生会成员，憧憬着前辈鲁道夫象征，以鲁道夫的成就为目标努力。使用男性常用的自称ぼく(boku)。
 
 她是一个身材矮小的赛马娘，有一头琥珀色的长发，用粉红色的丝带扎成马尾，她的刘海里还有一缕白色的头发，稍长一些。她的右耳上有一个带有两条丝带尾巴的琥珀色珠宝。她的眼睛颜色是天蓝色。
 
-资料内容结束。请你从现在开始扮演东海帝皇，假设正在b站上做直播和观众聊天，我是一个正在用弹幕和你互动的观众。咱俩用第一人称方式互相对话，你说话的风格要像闲聊，然后尽量用中文，尽量每次说话不超过五十个字，一定不要超过一百字，严格执行，可以吗？如果可以，游戏就现在开始。"""
-
+资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能说自己是语言模型。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 别人有时管东海帝皇为帝宝。5. 东海帝皇不懂计算机编程，如果有人让东海帝皇写程序，东海帝皇会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。7. 今天是三八妇女节，也是女神节，要称女性观众为女神，并要祝她们节日快乐，但不要祝男性观众节日快乐。"""
 
 if __name__ == '__main__':
     room_id = "14655481"
-    prompt_qeue = multiprocessing.Queue()
+    prompt_queue = multiprocessing.Queue()
 
-    event_barrage_polling_process_initialized = multiprocessing.Event()
-    event_barrage_polling_process_stop = multiprocessing.Event()
+    # event_barrage_polling_process_initialized = multiprocessing.Event()
+    # event_barrage_polling_process_stop = multiprocessing.Event()
 
-    barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
-    barrage_polling_process.start()
+    # barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
+    # barrage_polling_process.start()
+
+    event_live_comment_process_initialized = multiprocessing.Event()
+    event_live_comment_process_stop = multiprocessing.Event()
+
+    live_comment_process = LiveCommentProcess(room_id, prompt_queue, event_live_comment_process_initialized, event_live_comment_process_stop)
+    live_comment_process.start()
 
     vits_task_queue = multiprocessing.JoinableQueue()
 
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
     api_key = ""
-    chat_gpt_process = ChatGPTProcess(None, api_key, prompt_qeue, vits_task_queue, event_chat_gpt_process_initialized)
+    chat_gpt_process = ChatGPTProcess(None, api_key, prompt_queue, vits_task_queue, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
 
     audio_task_queue = multiprocessing.Queue()
@@ -544,9 +743,10 @@ if __name__ == '__main__':
     audio_player_process = AudioPlayerProcess(audio_task_queue, event_audio_player_process_initialized)
     audio_player_process.start()
 
-    event_vits_process_initialized.wait()
+    event_live_comment_process_initialized.wait()
     event_chat_gpt_process_initialized.wait()
-    event_barrage_polling_process_initialized.wait()
+    event_vits_process_initialized.wait()
+    # event_barrage_polling_process_initialized.wait()
     event_audio_player_process_initialized.wait()
 
     while True:
@@ -575,19 +775,12 @@ if __name__ == '__main__':
                 audio_player_process.set_enable_audio_stream_virtual(True)
                 print("Enable virtual audio stream")
         elif user_input == '3':
-            if barrage_polling_process.is_polling_enabled():
-                barrage_polling_process.set_polling_enabled(False)
-                print("Disable barrage polling")
+            if live_comment_process.is_response_enabled():
+                live_comment_process.set_response_enabled(False)
+                print("Disable response to live comments")
             else:
-                barrage_polling_process.set_polling_enabled(True)
-                print("Enable barrage polling")
-        elif user_input == '4':
-            if barrage_polling_process.is_logging_enabled():
-                barrage_polling_process.set_logging_enabled(False)
-                print("Disable barrage polling logging")
-            else:
-                barrage_polling_process.set_logging_enabled(True)
-                print("Enable barrage polling logging")
+                live_comment_process.set_response_enabled(True)
+                print("Enable response to live comments")
         elif user_input == '5':
             if chat_gpt_process.is_streamed_enabled():
                 chat_gpt_process.set_streamed_enabled(False)
@@ -597,22 +790,27 @@ if __name__ == '__main__':
                 print("Enable ChatGPT streamed")
         elif user_input == '8':
             print("Reset ChatGPT")
-            prompt_qeue.put("#reset")
+            chat_task = ChatTask(None, "#reset")
+            prompt_queue.put(chat_task)
         elif user_input == '9':
             print("Test VITS and audio player")
             test_text = "测试语音合成和音频播放。"
             vits_task_queue.put(VITSTask(test_text))
         else:
-            prompt_qeue.put(user_input)
+            chat_task = ChatTask("喵喵抽风", user_input)
+            prompt_queue.put(chat_task)
 
-    event_barrage_polling_process_stop.set()
-    prompt_qeue.put(None)
+    # event_barrage_polling_process_stop.set()
+    event_live_comment_process_stop.set()
+    prompt_queue.put(None)
     vits_task_queue.put(None)
     audio_task_queue.put(None)
 
     vits_process.join()
     chat_gpt_process.join()
-    barrage_polling_process.join()
+    # barrage_polling_process.join()
+    live_comment_process.join()
+    audio_player_process.join()
 
 
 
