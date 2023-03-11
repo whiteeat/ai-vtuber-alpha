@@ -28,6 +28,8 @@ import vits.commons as commons
 from vits.models import SynthesizerTrn
 from vits.text import text_to_sequence
 
+import subtitle
+
 class VITSProcess(multiprocessing.Process):
     def __init__(
             self, 
@@ -112,7 +114,7 @@ class VITSProcess(multiprocessing.Process):
 
                 data = audio.astype(np.float32).tobytes()
 
-                task = AudioTask(data)
+                task = AudioTask(data, next_task.text)
                 self.result_queue.put(task)
                 
             except Exception as e:
@@ -133,13 +135,15 @@ class VITSTask:
         self.length_scale = length_scale
 
 class AudioTask:
-    def __init__(self, data):
+    def __init__(self, data, text=None):
         self.data = data
+        self.text = text
 
 class AudioPlayerProcess(multiprocessing.Process):
-    def __init__(self, task_queue, event_initalized):
+    def __init__(self, audio_task_queue, subtitle_task_queue, event_initalized):
         super().__init__()
-        self.task_queue = task_queue
+        self.task_queue = audio_task_queue
+        self.subtitle_task_queue = subtitle_task_queue
         self.event_initalized = event_initalized
 
         self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
@@ -220,6 +224,9 @@ class AudioPlayerProcess(multiprocessing.Process):
             try:
                 print(f"{proc_name} is working...")
                 data = next_task.data
+                text = next_task.text
+
+                self.subtitle_task_queue.put(text)
 
                 if self.is_audio_stream_enabled():
                     stream.write(data)
@@ -286,8 +293,8 @@ class ChatGPTProcess(multiprocessing.Process):
         punctuations_to_split_text = set("。！？")
         punctuations_to_split_text_longer = set(",")
 
-        min_sentence_length = 32
-        sentence_longer_threshold = 64
+        min_sentence_length = 16
+        sentence_longer_threshold = 32
 
         self.event_initialized.set()
 
@@ -691,13 +698,14 @@ class BarragePollingProcess(multiprocessing.Process):
 
 preset_text = f"""下面这段话是东海帝皇的相关人设资料，请阅读并理解：
 
-东海帝皇是赛马娘第一季的第三主角，也是第二季的主角。她是一个活泼的赛马娘，非常崇拜鲁道夫象征，希望加入Team Rigil，并且她的目标是获得日本三冠王称号。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
+东海帝皇是赛马娘第一季的第三主角，也是第二季的主角。她是一个活泼的赛马娘，非常崇拜鲁道夫象征。她热爱赛跑，希望永远在赛场上奔跑，不再骨折。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
 
 身材小巧，开朗活泼，有着闪闪发亮的夺目笑容的美少女马娘。能歌善舞，由于身体轻巧，脚步也很轻盈，那跳跃般的独特步法被称作“帝王舞步”。性格争强好胜，略有些傲慢。自尊心很强，面对比赛的热情比任何人都要强烈。学生会成员，憧憬着前辈鲁道夫象征，以鲁道夫的成就为目标努力。使用男性常用的自称ぼく(boku)。
 
 她是一个身材矮小的赛马娘，有一头琥珀色的长发，用粉红色的丝带扎成马尾，她的刘海里还有一缕白色的头发，稍长一些。她的右耳上有一个带有两条丝带尾巴的琥珀色珠宝。她的眼睛颜色是天蓝色。
 
-资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能说自己是语言模型。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 别人有时管东海帝皇为帝宝。5. 东海帝皇不懂计算机编程，如果有人让东海帝皇写程序，东海帝皇会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。7. 今天是三八妇女节，也是女神节，要称女性观众为女神，并要祝她们节日快乐，但不要祝男性观众节日快乐。"""
+资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能提到任何关于自己是AI或语言模型相关的内容。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 东海帝皇的昵称为帝宝。5. 东海帝皇不懂计算机编程，如果有人让东海帝皇写程序，东海帝皇会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。
+"""
 
 if __name__ == '__main__':
     room_id = "14655481"
@@ -740,8 +748,17 @@ if __name__ == '__main__':
     vits_process.start()
 
     event_audio_player_process_initialized = multiprocessing.Event()
-    audio_player_process = AudioPlayerProcess(audio_task_queue, event_audio_player_process_initialized)
+    subtitle_task_queue = multiprocessing.Queue()
+
+    audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue, event_audio_player_process_initialized)
     audio_player_process.start()
+
+    event_subtitle_bar_process_initialized = multiprocessing.Event()
+
+    subtitle_bar_process = subtitle.SubtitleBarProcess(subtitle_task_queue, event_subtitle_bar_process_initialized)
+    subtitle_bar_process.start()
+
+    event_subtitle_bar_process_initialized.wait()
 
     event_live_comment_process_initialized.wait()
     event_chat_gpt_process_initialized.wait()
@@ -805,12 +822,12 @@ if __name__ == '__main__':
     prompt_queue.put(None)
     vits_task_queue.put(None)
     audio_task_queue.put(None)
+    subtitle_task_queue.put(None)
 
     vits_process.join()
     chat_gpt_process.join()
     # barrage_polling_process.join()
     live_comment_process.join()
     audio_player_process.join()
-
-
-
+    subtitle_bar_process.join()
+    
