@@ -248,11 +248,15 @@ class AudioPlayerProcess(multiprocessing.Process):
 access_token = ""
 
 class ChatGPTProcess(multiprocessing.Process):
-    def __init__(self, access_token, api_key, prompt_queue, vits_task_queue, event_initialized):
+    def __init__(self, access_token, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue, event_initialized):
         super().__init__()
         self.access_token = access_token
         self.api_key = api_key
-        self.prompt_queue = prompt_queue
+        # self.prompt_queue = prompt_queue
+        self.greeting_queue = greeting_queue
+        self.chat_queue = chat_queue
+        self.thanks_queue = thanks_queue
+
         self.vits_task_queue = vits_task_queue
         self.event_initialized = event_initialized
 
@@ -284,57 +288,82 @@ class ChatGPTProcess(multiprocessing.Process):
         elif self.api_key is not None:
             # engine_str = "gpt-3.5-turbo-0301"
             # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
-            chatbot = ChatbotV3(api_key=self.api_key, temperature=0.7, system_prompt=preset_text)
+            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=2000, temperature=0.7, system_prompt=preset_text)
             use_api_key = True
             print("Use API key")
         
         assert use_access_token or use_api_key, "Error: use_access_token and use_api_key are both False!"
 
-        punctuations_to_split_text = set("。！？")
-        punctuations_to_split_text_longer = set(",")
+        # punctuations_to_split_text = set("。！？：\n")
+        # punctuations_to_split_text_longer = set(",")
+        punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
+        punctuations_to_split_text_longer = {'，'}
 
         min_sentence_length = 16
         sentence_longer_threshold = 32
 
+        # Use short preset text for event
+        chatbot.reset(convo_id='default', system_prompt=preset_text_short)
+
+        channels = {'default', 'chat'}
+
         self.event_initialized.set()
 
         while True:
-            response = ""
-            chat_task = self.prompt_queue.get()
-            print(f"{proc_name} is working...")
-            if chat_task is None:
-                # Poison pill means shutdown
-                print(f"{proc_name}: Exiting")
-                break
+            task = None
+            if not self.thanks_queue.empty():
+                task = self.thanks_queue.get()
+            elif not self.chat_queue.empty():
+                task = self.chat_queue.get()
+                print(f"{proc_name} is working...")
+                if task is None:
+                    # Poison pill means shutdown
+                    print(f"{proc_name}: Exiting")
+                    break
+                
+                header = task.message[:32]
+                if '#reset' in header:
+                    try:
+                        print("Reset ChatGPT")
+                        print(preset_text)
+                        if use_api_key:
+                            chatbot.conversation.clear()
+                            chatbot.reset(convo_id='default', system_prompt=preset_text_short)
+                        elif use_access_token:
+                            # Outdated
+                            for data in chatbot.ask(preset_text):
+                                response = data["message"]
+                        # print(response)
+                    except Exception as e:
+                        print(e)
+                        print("Reset fail!")
+                    finally:
+                        continue
+
+            elif not self.greeting_queue.empty():
+                task = self.greeting_queue.get()
             
-            header = chat_task.message[:32]
-            if header == "#reset":
-                try:
-                    print("Reset ChatGPT")
-                    print(preset_text)
-                    if use_api_key:
-                        chatbot.conversation.clear()
-                    elif use_access_token:
-                        # Outdated
-                        for data in chatbot.ask(preset_text):
-                            response = data["message"]
-                    # print(response)
-                except Exception as e:
-                    print(e)
-                    print("Reset fail!")
-                finally:
-                    continue
-            
-            user_name = chat_task.user_name
-            msg = chat_task.message
-            task_type = chat_task.type
+            else:
+                time.sleep(1.0)
+                continue
+                     
+            # To tell the interpreter that the task must be the type ChatTask
+            # assert task is not None
+            # if task is not None:
+            user_name = task.user_name
+            msg = task.message
+            channel = task.channel
             prompt_msg = msg
+
+            assert channel in channels
 
             try:
                 repeat_user_message = True
                 repeat_message = None
-                if task_type == "event":
+                if channel == 'default':
                     repeat_user_message = False
+                    if len(chatbot.conversation[channel]) >= 8:
+                        chatbot.conversation[channel].pop(1)
                 else:
                     repeat_message = f"{user_name}说：“{msg}”"
                     # prompt_msg = f"（{user_name}对你说：)“{msg}”"
@@ -342,7 +371,7 @@ class ChatGPTProcess(multiprocessing.Process):
 
                 if use_api_key:
                     new_sentence = ""
-                    for data in chatbot.ask(prompt=prompt_msg, convo_id=user_name):
+                    for data in chatbot.ask(prompt=prompt_msg, convo_id=channel):
                         print(data, end="", flush=True)
 
                         should_split = False
@@ -372,7 +401,8 @@ class ChatGPTProcess(multiprocessing.Process):
                             vits_task = VITSTask(new_sentence.strip())
                             self.vits_task_queue.put(vits_task)
 
-                elif use_access_token:
+                # elif use_access_token:
+                elif False:
                     if not self.is_streamed_enabled():
                         for data in chatbot.ask(msg):
                             response = data["message"]
@@ -428,16 +458,21 @@ class ChatGPTProcess(multiprocessing.Process):
 
 
 class ChatTask:
-    def __init__(self, user_name, message, type_str='chat'):
+    def __init__(self, user_name, message, channel):
         self.user_name = user_name
         self.message = message
-        self.type = type_str
+        self.channel = channel
 
 class LiveCommentProcess(multiprocessing.Process):
-    def __init__(self, room_id, prompt_queue, event_initialized, event_stop):
+    def __init__(self, room_id, greeting_queue, chat_queue, thanks_queue, event_initialized, event_stop):
         super().__init__()
         self.room_id = room_id
-        self.prompt_queue = prompt_queue
+        # self.prompt_queue = prompt_queue
+
+        self.greeting_queue = greeting_queue
+        self.chat_queue = chat_queue
+        self.thanks_queue = thanks_queue
+
         self.event_initialized = event_initialized
         self.event_stop = event_stop
 
@@ -521,10 +556,14 @@ class LiveCommentProcess(multiprocessing.Process):
                     user_name = jd['info'][2][1]
                     msg = jd['info'][1]
                     print('[DANMU] ', user_name, ': ', msg)
-                
+
+                    channel = 'chat'
                     if self.is_response_enabled():
-                        task = ChatTask(user_name, msg)
-                        self.prompt_queue.put(task)
+                        if self.chat_queue.full():
+                            _ = self.chat_queue.get()
+
+                        task = ChatTask(user_name, msg, channel)
+                        self.chat_queue.put(task)
 
                 elif (jd['cmd'] == 'SEND_GIFT'):
                     print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
@@ -532,22 +571,30 @@ class LiveCommentProcess(multiprocessing.Process):
                     user_name = jd['data']['uname']
                     gift_num = jd['data']['num']
                     gift_name = jd['data']['giftName']
-                    type_str = "event"
+                    channel = 'default'
 
                     # msg = f"（{user_name}投喂了{gift_num}个{gift_name}礼物给你。）"
                     msg = f"我是{user_name}，刚刚投喂了{gift_num}个{gift_name}礼物给你！"
                     if self.is_response_enabled():
-                        task = ChatTask("default", msg, type_str)
-                        self.prompt_queue.put(task)
+                        task = ChatTask(user_name, msg, channel)
+
+                        if self.thanks_queue.full():
+                            _ = self.thanks_queue.get()
+ 
+                        self.thanks_queue.put(task)
 
                 elif (jd['cmd'] == 'LIKE_INFO_V3_CLICK'):
                     user_name = jd['data']['uname']
                     print(f"[LIKE] {user_name}")
-                    type_str = 'event'
+                    channel = 'default'
                     msg = f"我是{user_name}，刚刚在你的直播间点了赞哦！"
                     if self.is_response_enabled():
-                        task = ChatTask("default", msg, type_str)
-                        self.prompt_queue.put(task)
+                        task = ChatTask(user_name, msg, channel)
+
+                        if self.thanks_queue.full():
+                            _ = self.thanks_queue.get()
+
+                        self.thanks_queue.put(task)
 
                 elif (jd['cmd'] == 'LIVE'):
                     print('[Notice] LIVE Start!')
@@ -556,21 +603,35 @@ class LiveCommentProcess(multiprocessing.Process):
                 elif (jd['cmd'] == 'INTERACT_WORD'):
                     user_name = jd['data']['uname']
                     msg_type = jd['data']['msg_type']
-                    type_str = "event"
+                    channel = 'default'
                     # 进场
                     if msg_type == 1:
                         # msg = f"（{user_name}进入了你的直播间。）"
-                        msg = f"主播好！我是{user_name}，来你的直播间了！"
+                        # msg = f"主播好！我是{user_name}，来你的直播间了！"
+                        msg = f"主播好！我是{user_name}，我来了！"
                         print(f"[INTERACT_WORD] {msg}")
+
+                        if self.is_response_enabled():
+                            task = ChatTask(user_name, msg, channel)
+
+                            if self.greeting_queue.full():
+                                _ = self.greeting_queue.get()
+
+                            self.greeting_queue.put(task)
+
                     # 关注
                     elif msg_type == 2:
                         # msg = f"（{user_name}关注了你的直播间。）"
                         msg = f"我是{user_name}，刚刚关注了你的直播间！"
                         print(f"[INTERACT_WORD] {msg}")
 
-                    if self.is_response_enabled():
-                        task = ChatTask("default", msg, type_str)
-                        self.prompt_queue.put(task)
+                        if self.is_response_enabled():
+                            task = ChatTask(user_name, msg, channel)
+
+                            if self.thanks_queue.full():
+                                _ = self.thanks_queue.get()
+
+                            self.thanks_queue.put(task)
                 else:
                     print('[OTHER] ', jd['cmd'])
             except Exception as e:
@@ -698,18 +759,22 @@ class BarragePollingProcess(multiprocessing.Process):
 
 preset_text = f"""下面这段话是东海帝皇的相关人设资料，请阅读并理解：
 
-东海帝皇是赛马娘第一季的第三主角，也是第二季的主角。她是一个活泼的赛马娘，非常崇拜鲁道夫象征。她热爱赛跑，希望永远在赛场上奔跑，不再骨折。她经常以非成员的身份与Team Spica混在一起。在与该团队的几次活动之后，重新考虑过后，她转而加入了Team Spica。
+东海帝皇是赛马娘第一季的第三主角，也是第二季的主角。她是一个活泼的赛马娘，非常崇拜鲁道夫象征。她热爱赛跑，希望永远在赛场上奔跑，不再骨折。她现在是Team Spica的成员。最热爱的事情之一是坐轮椅。
 
-身材小巧，开朗活泼，有着闪闪发亮的夺目笑容的美少女马娘。能歌善舞，由于身体轻巧，脚步也很轻盈，那跳跃般的独特步法被称作“帝王舞步”。性格争强好胜，略有些傲慢。自尊心很强，面对比赛的热情比任何人都要强烈。学生会成员，憧憬着前辈鲁道夫象征，以鲁道夫的成就为目标努力。使用男性常用的自称ぼく(boku)。
+身材小巧，开朗活泼，有着闪闪发亮的夺目笑容的美少女马娘。能歌善舞，由于身体轻巧，脚步也很轻盈，那跳跃般的独特步法被称作“帝皇舞步”。性格争强好胜，略有些傲慢。自尊心很强，面对比赛的热情比任何人都要强烈。学生会成员，憧憬着前辈鲁道夫象征，以鲁道夫的成就为目标努力。
 
-她是一个身材矮小的赛马娘，有一头琥珀色的长发，用粉红色的丝带扎成马尾，她的刘海里还有一缕白色的头发，稍长一些。她的右耳上有一个带有两条丝带尾巴的琥珀色珠宝。她的眼睛颜色是天蓝色。
-
-资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能提到任何关于自己是AI或语言模型相关的内容。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 东海帝皇的昵称为帝宝。5. 东海帝皇不懂计算机编程，如果有人让东海帝皇写程序，东海帝皇会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。
+资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你要演得不像AI，你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能提到任何关于自己是AI或语言模型相关的内容。你的口癖是喜欢在句中或句末加“哈吉米”，而不是句首。你的野爹是喵喵抽风巨能摆。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 别人对东海帝皇的昵称为帝宝，东海帝皇常用称呼自己为小爷。5. 作为东海帝，你不懂计算机编程，如果有人让你写程序，你会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。7. 对于直播间观众，你有时会主动向他们索要礼物。
 """
+
+preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己，口头禅是“哈吉米”，常用在句中或句末。"
 
 if __name__ == '__main__':
     room_id = "14655481"
-    prompt_queue = multiprocessing.Queue()
+    # prompt_queue = multiprocessing.Queue()
+
+    greeting_queue = multiprocessing.Queue(maxsize=4)
+    chat_queue = multiprocessing.Queue(maxsize=4)
+    thanks_queue = multiprocessing.Queue(maxsize=8)
 
     # event_barrage_polling_process_initialized = multiprocessing.Event()
     # event_barrage_polling_process_stop = multiprocessing.Event()
@@ -720,7 +785,7 @@ if __name__ == '__main__':
     event_live_comment_process_initialized = multiprocessing.Event()
     event_live_comment_process_stop = multiprocessing.Event()
 
-    live_comment_process = LiveCommentProcess(room_id, prompt_queue, event_live_comment_process_initialized, event_live_comment_process_stop)
+    live_comment_process = LiveCommentProcess(room_id, greeting_queue, chat_queue, thanks_queue, event_live_comment_process_initialized, event_live_comment_process_stop)
     live_comment_process.start()
 
     vits_task_queue = multiprocessing.JoinableQueue()
@@ -728,7 +793,7 @@ if __name__ == '__main__':
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
     api_key = ""
-    chat_gpt_process = ChatGPTProcess(None, api_key, prompt_queue, vits_task_queue, event_chat_gpt_process_initialized)
+    chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
 
     audio_task_queue = multiprocessing.Queue()
@@ -807,19 +872,19 @@ if __name__ == '__main__':
                 print("Enable ChatGPT streamed")
         elif user_input == '8':
             print("Reset ChatGPT")
-            chat_task = ChatTask(None, "#reset")
-            prompt_queue.put(chat_task)
+            chat_task = ChatTask(None, "#reset", 'chat')
+            chat_queue.put(chat_task)
         elif user_input == '9':
             print("Test VITS and audio player")
             test_text = "测试语音合成和音频播放。"
             vits_task_queue.put(VITSTask(test_text))
         else:
-            chat_task = ChatTask("喵喵抽风", user_input)
-            prompt_queue.put(chat_task)
+            chat_task = ChatTask('喵喵抽风', user_input, 'chat')
+            chat_queue.put(chat_task)
 
     # event_barrage_polling_process_stop.set()
     event_live_comment_process_stop.set()
-    prompt_queue.put(None)
+    chat_queue.put(None)
     vits_task_queue.put(None)
     audio_task_queue.put(None)
     subtitle_task_queue.put(None)

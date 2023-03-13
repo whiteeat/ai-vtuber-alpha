@@ -6,14 +6,17 @@ from revChatGPT.V3 import Chatbot as ChatbotV3
 USE_API_KEY = True
 USE_ACCESS_TOKEN = False
 
-punctuations_to_split_text = set("。！？")
-punctuations_to_split_text_longer = set(",")
+# punctuations_to_split_text = set("。！？")
+# punctuations_to_split_text_longer = set(",")
+
+punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
+punctuations_to_split_text_longer = {'，'}
 
 min_sentence_length = 16
 sentence_longer_threshold = 32
 
 if USE_API_KEY:
-    api_key = ""
+    api_key = "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"
     chatbot = ChatbotV3(api_key)
 
     prompt = "测试。请随便跟我说一段话，必须大于300字。"
