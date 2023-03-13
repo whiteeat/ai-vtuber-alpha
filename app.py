@@ -362,9 +362,15 @@ class ChatGPTProcess(multiprocessing.Process):
                 repeat_message = None
                 if channel == 'default':
                     repeat_user_message = False
-                    if len(chatbot.conversation[channel]) >= 8:
+                    if len(chatbot.conversation[channel]) >= 9:
+                        chatbot.conversation[channel].pop(1)
                         chatbot.conversation[channel].pop(1)
                 else:
+                    if len(chatbot.conversation[channel]) >= 9:
+                        # Remove one Q and one A.
+                        # Limit the size of history .
+                        chatbot.conversation[channel].pop(1)
+                        chatbot.conversation[channel].pop(1)
                     repeat_message = f"{user_name}说：“{msg}”"
                     # prompt_msg = f"（{user_name}对你说：)“{msg}”"
                     prompt_msg = f"我是{user_name}，{msg}"
