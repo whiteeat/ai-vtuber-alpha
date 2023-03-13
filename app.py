@@ -450,7 +450,7 @@ class ChatGPTProcess(multiprocessing.Process):
                             prev_message = message
             except Exception as e:
                 print(e)
-                if task_type == 'chat':
+                if channel == 'chat':
                     if self.is_vits_enabled():
                         text = "不好意思，刚才我走神了，请问你刚才说什么?"
                         task = VITSTask(text)
