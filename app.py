@@ -312,10 +312,13 @@ class ChatGPTProcess(multiprocessing.Process):
         while True:
             task = None
             if not self.thanks_queue.empty():
+                print(f"{proc_name} is working...")
+                print("Get a task from thanks_queue.")
                 task = self.thanks_queue.get()
             elif not self.chat_queue.empty():
-                task = self.chat_queue.get()
                 print(f"{proc_name} is working...")
+                print("Get a task from chat_queue.")
+                task = self.chat_queue.get()
                 if task is None:
                     # Poison pill means shutdown
                     print(f"{proc_name}: Exiting")
@@ -341,6 +344,8 @@ class ChatGPTProcess(multiprocessing.Process):
                         continue
 
             elif not self.greeting_queue.empty():
+                print(f"{proc_name} is working...")
+                print("Get a task from greeting_queue.")
                 task = self.greeting_queue.get()
             
             else:
@@ -362,15 +367,17 @@ class ChatGPTProcess(multiprocessing.Process):
                 repeat_message = None
                 if channel == 'default':
                     repeat_user_message = False
-                    if len(chatbot.conversation[channel]) >= 9:
-                        chatbot.conversation[channel].pop(1)
-                        chatbot.conversation[channel].pop(1)
+                    if channel in chatbot.conversation:
+                        if len(chatbot.conversation[channel]) >= 9:
+                            chatbot.conversation[channel].pop(1)
+                            chatbot.conversation[channel].pop(1)
                 else:
-                    if len(chatbot.conversation[channel]) >= 9:
-                        # Remove one Q and one A.
-                        # Limit the size of history .
-                        chatbot.conversation[channel].pop(1)
-                        chatbot.conversation[channel].pop(1)
+                    # Remove one Q and one A.
+                    # Limit the size of history.
+                    if channel in chatbot.conversation:
+                        if len(chatbot.conversation[channel]) >= 9:
+                            chatbot.conversation[channel].pop(1)
+                            chatbot.conversation[channel].pop(1)
                     repeat_message = f"{user_name}说：“{msg}”"
                     # prompt_msg = f"（{user_name}对你说：)“{msg}”"
                     prompt_msg = f"我是{user_name}，{msg}"
