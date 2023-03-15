@@ -16,7 +16,8 @@ class SystemMessageUpdater:
         你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 别人对东海帝皇的昵称为帝宝，东海帝皇常用称呼自己为小爷。5. 作为东海帝，你不懂计算机编程，如果有人让你写程序，你会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。7. 对于直播间观众，你有时会主动向他们索要礼物。"""
 
         self.latest_news = "暂时没啥趣事。"
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.datetime.now().strftime("%H点%M分")
         self.system_msg = self.system_msg_template.format(time=now, latest_news=self.latest_news)
 
         # https://stackoverflow.com/questions/474528/how-to-repeatedly-execute-a-function-every-x-seconds
@@ -40,7 +41,8 @@ class SystemMessageUpdater:
         print(self.latest_news)
 
     def get_system_message(self):
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.datetime.now().strftime("%H点%M分")
         self.system_msg = self.system_msg_template.format(time=now, latest_news=self.latest_news)
         return self.system_msg
 
