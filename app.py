@@ -29,6 +29,7 @@ from vits.models import SynthesizerTrn
 from vits.text import text_to_sequence
 
 import subtitle
+import prompt_hot_update
 
 class VITSProcess(multiprocessing.Process):
     def __init__(
@@ -307,9 +308,13 @@ class ChatGPTProcess(multiprocessing.Process):
 
         channels = {'default', 'chat'}
 
+        system_msg_updater = prompt_hot_update.SystemMessageUpdater()
+        system_msg_updater.start(60.0)
+
         self.event_initialized.set()
 
         while True:
+            system_msg_updater.update()
             task = None
             if not self.thanks_queue.empty():
                 print(f"{proc_name} is working...")
@@ -372,6 +377,12 @@ class ChatGPTProcess(multiprocessing.Process):
                             chatbot.conversation[channel].pop(1)
                             chatbot.conversation[channel].pop(1)
                 else:
+                    if channel not in chatbot.conversation:
+                        chatbot.reset(convo_id=channel)
+
+                    system_msg = system_msg_updater.get_system_message()
+                    chatbot.conversation[channel][0]['content'] = system_msg
+
                     # Remove one Q and one A.
                     # Limit the size of history.
                     if channel in chatbot.conversation:

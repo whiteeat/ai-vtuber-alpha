@@ -77,7 +77,7 @@ class SubtitleBar():
             pass
         except Exception as e:
             print(e)
-        self.window.after(100, self.Update)
+        self.window.after(200, self.Update)
 
 
 class SubtitleBarProcess(multiprocessing.Process):
