@@ -3,7 +3,7 @@ from revChatGPT.V1 import Chatbot as ChatGPTV1
 from revChatGPT.V3 import Chatbot as ChatGPTV3
 
 USE_API_KEY = True
-USE_ACCESS_TOKEN = True
+USE_ACCESS_TOKEN = False
 
 prompt_cn = "你好！"
 prompt_en = "Hello!"

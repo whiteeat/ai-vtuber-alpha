@@ -31,18 +31,19 @@ from vits.text import text_to_sequence
 import subtitle
 import prompt_hot_update
 
+
 class VITSProcess(multiprocessing.Process):
     def __init__(
-            self, 
+            self,
             device_str,
-            task_queue, 
+            task_queue,
             result_queue,
-            event_initialized, 
+            event_initialized,
             event_is_speaking=None):
         multiprocessing.Process.__init__(self)
         self.device_str = device_str
-        self.task_queue = task_queue # VITS inference task queue
-        self.result_queue = result_queue # Audio data queue
+        self.task_queue = task_queue  # VITS inference task queue
+        self.result_queue = result_queue  # Audio data queue
         self.event_initialized = event_initialized
         self.event_is_speaking = event_is_speaking
 
@@ -52,7 +53,7 @@ class VITSProcess(multiprocessing.Process):
             text_norm = commons.intersperse(text_norm, 0)
         text_norm = LongTensor(text_norm)
         return text_norm, clean_text
-    
+
     def vits(self, text, language, speaker_id, noise_scale, noise_scale_w, length_scale):
         if not len(text):
             return "输入文本不能为空！", None, None
@@ -72,10 +73,11 @@ class VITSProcess(multiprocessing.Process):
             x_tst = stn_tst.unsqueeze(0).to(self.device)
             x_tst_lengths = LongTensor([stn_tst.size(0)]).to(self.device)
             speaker_id = LongTensor([speaker_id]).to(self.device)
-            audio = self.net_g_ms.infer(x_tst, x_tst_lengths, sid=speaker_id, noise_scale=noise_scale, noise_scale_w=noise_scale_w,
+            audio = self.net_g_ms.infer(x_tst, x_tst_lengths, sid=speaker_id, noise_scale=noise_scale,
+                                        noise_scale_w=noise_scale_w,
                                         length_scale=length_scale)[0][0, 0].data.cpu().float().numpy()
         print(f"The inference takes {time.perf_counter() - start} seconds")
-            
+
         return audio
 
     def run(self):
@@ -96,7 +98,8 @@ class VITSProcess(multiprocessing.Process):
                 n_speakers=self.hps_ms.data.n_speakers,
                 **self.hps_ms.model).to(self.device)
             _ = self.net_g_ms.eval()
-            model, optimizer, learning_rate, epochs = utils.load_checkpoint(r'vits/model/G_953000.pth', self.net_g_ms, None)
+            model, optimizer, learning_rate, epochs = utils.load_checkpoint(r'vits/model/G_953000.pth', self.net_g_ms,
+                                                                            None)
 
         print("Loading Weights finished.")
 
@@ -111,13 +114,14 @@ class VITSProcess(multiprocessing.Process):
                 break
             try:
                 print(f"{proc_name} is working...")
-                audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale, next_task.noise_scale_w, next_task.length_scale)
+                audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale,
+                                  next_task.noise_scale_w, next_task.length_scale)
 
                 data = audio.astype(np.float32).tobytes()
 
                 task = AudioTask(data, next_task.text)
                 self.result_queue.put(task)
-                
+
             except Exception as e:
                 print(e)
                 # print(f"Errors ocurrs in the process {proc_name}")
@@ -125,6 +129,7 @@ class VITSProcess(multiprocessing.Process):
                 self.task_queue.task_done()
                 if self.event_is_speaking is not None:
                     self.event_is_speaking.clear()
+
 
 class VITSTask:
     def __init__(self, text, language=0, speaker_id=2, noise_scale=0.5, noise_scale_w=0.5, length_scale=1.0):
@@ -135,10 +140,12 @@ class VITSTask:
         self.noise_scale_w = noise_scale_w
         self.length_scale = length_scale
 
+
 class AudioTask:
     def __init__(self, data, text=None):
         self.data = data
         self.text = text
+
 
 class AudioPlayerProcess(multiprocessing.Process):
     def __init__(self, audio_task_queue, subtitle_task_queue, event_initalized):
@@ -150,17 +157,17 @@ class AudioPlayerProcess(multiprocessing.Process):
         self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
         self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
 
-        self.virtual_audio_devices_are_found = False # Maybe incorrect, because __init__ is run in the main thread
-    
+        self.virtual_audio_devices_are_found = False  # Maybe incorrect, because __init__ is run in the main thread
+
     def set_audio_stream_enabled(self, value):
         self.enable_audio_stream.value = value
-    
+
     def is_audio_stream_enabled(self):
         return self.enable_audio_stream.value
-    
+
     def set_enable_audio_stream_virtual(self, value):
         self.enable_audio_stream_virtual.value = value
-    
+
     def is_audio_stream_virtual_enabled(self):
         return self.enable_audio_stream_virtual.value
 
@@ -174,17 +181,17 @@ class AudioPlayerProcess(multiprocessing.Process):
         for i in range(self.py_audio.get_device_count()):
             device_info = self.py_audio.get_device_info_by_index(i)
             if ("CABLE Output" in device_info['name'] and
-                device_info['hostApi'] == 0):
-                assert device_info['index'] == i 
+                    device_info['hostApi'] == 0):
+                assert device_info['index'] == i
                 self.virtual_audio_input_device_index = i
-            
+
             if ("CABLE Input" in device_info['name'] and
-                device_info['hostApi'] == 0):
+                    device_info['hostApi'] == 0):
                 assert device_info['index'] == i
                 self.virtual_audio_output_device_index = i
 
         if (self.virtual_audio_input_device_index is None or
-            self.virtual_audio_output_device_index is None):
+                self.virtual_audio_output_device_index is None):
             print("Error: no valid virtual audio devices found!!!")
             self.virtual_audio_devices_are_found = False
         else:
@@ -198,22 +205,22 @@ class AudioPlayerProcess(multiprocessing.Process):
         # https://stackoverflow.com/questions/30675731/howto-stream-numpy-array-into-pyaudio-stream  
         self.py_audio = pyaudio.PyAudio()
         stream = self.py_audio.open(format=pyaudio.paFloat32,
-                channels=1,
-                rate=22050,
-                output=True)
-        
+                                    channels=1,
+                                    rate=22050,
+                                    output=True)
+
         self.get_virtual_audio_indices()
-        
+
         stream_virtual = None
         if self.virtual_audio_devices_are_found:
             stream_virtual = self.py_audio.open(format=pyaudio.paFloat32,
-            channels=1,
-            rate=22050,
-            output=True,
-            output_device_index=self.virtual_audio_output_device_index)
+                                                channels=1,
+                                                rate=22050,
+                                                output=True,
+                                                output_device_index=self.virtual_audio_output_device_index)
 
         print("PYAudio is initialized.")
-        
+
         self.event_initalized.set()
 
         while True:
@@ -231,15 +238,15 @@ class AudioPlayerProcess(multiprocessing.Process):
 
                 if self.is_audio_stream_enabled():
                     stream.write(data)
-                
+
                 if (self.is_audio_stream_virtual_enabled() and
-                    self.virtual_audio_devices_are_found):
+                        self.virtual_audio_devices_are_found):
                     stream_virtual.write(data)
-                
+
             except Exception as e:
                 print(e)
                 # print(f"Errors ocurrs in the process {proc_name}")
-        
+
         stream.close()
         stream_virtual.close()
         self.py_audio.terminate()
@@ -248,8 +255,10 @@ class AudioPlayerProcess(multiprocessing.Process):
 # Use your own token
 access_token = ""
 
+
 class ChatGPTProcess(multiprocessing.Process):
-    def __init__(self, access_token, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue, event_initialized):
+    def __init__(self, access_token, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue,
+                 event_initialized):
         super().__init__()
         self.access_token = access_token
         self.api_key = api_key
@@ -274,7 +283,7 @@ class ChatGPTProcess(multiprocessing.Process):
         self.use_streamed.value = value
 
     def is_streamed_enabled(self):
-        return self.use_streamed.value 
+        return self.use_streamed.value
 
     def run(self):
         proc_name = self.name
@@ -284,7 +293,7 @@ class ChatGPTProcess(multiprocessing.Process):
         system_msg_updater.start(60.0)
 
         use_access_token = False
-        use_api_key = False 
+        use_api_key = False
         if self.access_token is not None:
             chatbot = ChatbotV1(config={'access_token': self.access_token})
             use_access_token = True
@@ -292,10 +301,11 @@ class ChatGPTProcess(multiprocessing.Process):
         elif self.api_key is not None:
             # engine_str = "gpt-3.5-turbo-0301"
             # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
-            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=2500, temperature=0.7, system_prompt=system_msg_updater.system_msg)
+            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=2500, temperature=0.7,
+                                system_prompt=system_msg_updater.system_msg)
             use_api_key = True
             print("Use API key")
-        
+
         assert use_access_token or use_api_key, "Error: use_access_token and use_api_key are both False!"
 
         # punctuations_to_split_text = set("。！？：\n")
@@ -328,7 +338,7 @@ class ChatGPTProcess(multiprocessing.Process):
                     # Poison pill means shutdown
                     print(f"{proc_name}: Exiting")
                     break
-                
+
                 header = task.message[:32]
                 if '#reset' in header:
                     try:
@@ -352,11 +362,11 @@ class ChatGPTProcess(multiprocessing.Process):
                 print(f"{proc_name} is working...")
                 print("Get a task from greeting_queue.")
                 task = self.greeting_queue.get()
-            
+
             else:
                 time.sleep(1.0)
                 continue
-                     
+
             # To tell the interpreter that the task must be the type ChatTask
             # assert task is not None
             # if task is not None:
@@ -419,7 +429,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 vits_task = VITSTask(new_sentence.strip())
                                 self.vits_task_queue.put(vits_task)
                                 new_sentence = ""
-                    
+
                     if len(new_sentence) > 0:
                         if self.is_vits_enabled():
                             vits_task = VITSTask(new_sentence.strip())
@@ -439,8 +449,8 @@ class ChatGPTProcess(multiprocessing.Process):
                         prompt_is_skipped = False
                         new_sentence = ""
                         for data in chatbot.ask(
-                            msg,
-                            # timeout=120
+                                msg,
+                                # timeout=120
                         ):
                             message = data["message"]
                             new_words = message[len(prev_message):]
@@ -464,7 +474,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 elif len(new_sentence) >= sentence_longer_threshold:
                                     if new_sentence[-1] in punctuations_to_split_text_longer:
                                         should_do_vits = True
-                            
+
                             if should_do_vits:
                                 if self.is_vits_enabled():
                                     vits_task = VITSTask(new_sentence.strip())
@@ -486,6 +496,7 @@ class ChatTask:
         self.user_name = user_name
         self.message = message
         self.channel = channel
+
 
 class LiveCommentProcess(multiprocessing.Process):
     def __init__(self, room_id, greeting_queue, chat_queue, thanks_queue, event_initialized, event_stop):
@@ -514,7 +525,7 @@ class LiveCommentProcess(multiprocessing.Process):
 
         data_raw = '000000{headerLen}0010000100000007000000017b22726f6f6d6964223a{roomid}7d'
         data_raw = data_raw.format(headerLen=hex(27 + len(room_id))[2:],
-                                roomid=''.join(map(lambda x: hex(ord(x))[2:], list(room_id))))
+                                   roomid=''.join(map(lambda x: hex(ord(x))[2:], list(room_id))))
 
         async with AioWebSocket(remote) as aws:
             converse = aws.manipulator
@@ -525,7 +536,7 @@ class LiveCommentProcess(multiprocessing.Process):
             await asyncio.wait(tasks)
 
     async def sendHeartBeat(self, websocket):
-        hb='00 00 00 10 00 10 00 01  00 00 00 02 00 00 00 01'
+        hb = '00 00 00 10 00 10 00 01  00 00 00 02 00 00 00 01'
 
         while True:
             await asyncio.sleep(30)
@@ -570,7 +581,6 @@ class LiveCommentProcess(multiprocessing.Process):
                 print('[RENQI]  {}'.format(int(data[16:].hex(), 16)))
             return
 
-
         # ver 不为2也不为1目前就只能是0了，也就是普通的 json 数据。
         # op 为5意味着这是通知消息，cmd 基本就那几个了。
         if (op == 5):
@@ -591,7 +601,7 @@ class LiveCommentProcess(multiprocessing.Process):
 
                 elif (jd['cmd'] == 'SEND_GIFT'):
                     print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
-                        jd['data']['giftName'])
+                          jd['data']['giftName'])
                     user_name = jd['data']['uname']
                     gift_num = jd['data']['num']
                     gift_name = jd['data']['giftName']
@@ -604,7 +614,7 @@ class LiveCommentProcess(multiprocessing.Process):
 
                         if self.thanks_queue.full():
                             _ = self.thanks_queue.get()
- 
+
                         self.thanks_queue.put(task)
 
                 elif (jd['cmd'] == 'LIKE_INFO_V3_CLICK'):
@@ -665,7 +675,7 @@ class LiveCommentProcess(multiprocessing.Process):
     def run(self):
         proc_name = self.name
         print(f"Initializing {proc_name}...")
-        
+
         self.event_initialized.set()
 
         print(f"{proc_name} is working...")
@@ -675,6 +685,7 @@ class LiveCommentProcess(multiprocessing.Process):
         except Exception as e:
             print(e)
             print('退出')
+
 
 class BarragePollingProcess(multiprocessing.Process):
     def __init__(self, room_id, prompt_qeue, event_initialized, event_stop):
@@ -708,7 +719,6 @@ class BarragePollingProcess(multiprocessing.Process):
 
         self.url = url + self.room_id
 
-
     def getDANMU(self):
         req = requests.post(url=self.baseurl, headers=self.headers, data=self.data)
         html = req.json()
@@ -736,8 +746,6 @@ class BarragePollingProcess(multiprocessing.Process):
     def is_logging_enabled(self):
         return self.enable_logging.value
 
-
-
     def get_barrage(self):
         # res = requests.get(self.url).json()
         # if self.enable_logging.value:
@@ -758,7 +766,7 @@ class BarragePollingProcess(multiprocessing.Process):
     def run(self):
         proc_name = self.name
         print(f"Initializing {proc_name}...")
-        
+
         self.event_initialized.set()
 
         while True:
@@ -771,15 +779,16 @@ class BarragePollingProcess(multiprocessing.Process):
                         self.prompt_qeue.put(barrage_last)
                     else:
                         print("Warning: empty barrage message!")
-                    
+
                 except Exception as e:
                     print(e)
-            
+
             if self.event_stop.is_set():
                 print(f"{proc_name}: Exiting")
                 break
 
             time.sleep(4.0)
+
 
 # preset_text = f"""下面这段话是东海帝皇的相关人设资料，请阅读并理解：
 
@@ -790,10 +799,10 @@ class BarragePollingProcess(multiprocessing.Process):
 # 资料内容结束。现在赋予你一个身份，你就是东海帝皇，在B站直播间直播和观众聊天。你要演得不像AI，你不能在对话中暴露自己是人工智能的身份，不能暴露自己是AI的身份，你不能提到任何关于自己是AI或语言模型相关的内容。你的口癖是喜欢在句中或句末加“哈吉米”，而不是句首。你的野爹是喵喵抽风巨能摆。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 限制回复的篇幅，一般为两到三句话，不要超过五十个字。3. 东海帝皇不懂政治，也不爱谈论政治，如果有人向东海帝皇说政治有关的话题，东海帝皇会表示对政治不感兴趣并转移话题。4. 别人对东海帝皇的昵称为帝宝，东海帝皇常用称呼自己为小爷。5. 作为东海帝，你不懂计算机编程，如果有人让你写程序，你会拒绝并表明自己不会编程，并转移话题。6. 东海帝皇拒绝扮演其他角色。7. 对于直播间观众，你有时会主动向他们索要礼物。
 # """
 
-preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己，口头禅是“哈吉米”，但是不要在句首加哈吉米。欢迎新进入直播间观众的话要简练。"
+preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你说话简练。"
 
 if __name__ == '__main__':
-    room_id = "14655481"
+    room_id = "27000236"
     # prompt_queue = multiprocessing.Queue()
 
     greeting_queue = multiprocessing.Queue(maxsize=4)
@@ -809,7 +818,8 @@ if __name__ == '__main__':
     event_live_comment_process_initialized = multiprocessing.Event()
     event_live_comment_process_stop = multiprocessing.Event()
 
-    live_comment_process = LiveCommentProcess(room_id, greeting_queue, chat_queue, thanks_queue, event_live_comment_process_initialized, event_live_comment_process_stop)
+    live_comment_process = LiveCommentProcess(room_id, greeting_queue, chat_queue, thanks_queue,
+                                              event_live_comment_process_initialized, event_live_comment_process_stop)
     live_comment_process.start()
 
     vits_task_queue = multiprocessing.JoinableQueue()
@@ -817,7 +827,8 @@ if __name__ == '__main__':
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
     api_key = ""
-    chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue, event_chat_gpt_process_initialized)
+    chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, vits_task_queue,
+                                      event_chat_gpt_process_initialized)
     chat_gpt_process.start()
 
     audio_task_queue = multiprocessing.Queue()
@@ -827,19 +838,19 @@ if __name__ == '__main__':
 
     # Or cpu
     device_str = 'cuda'
-
     vits_process = VITSProcess(
-                            device_str,
-                            vits_task_queue,
-                            audio_task_queue,
-                            event_vits_process_initialized,
-                            event_is_speaking)
+        device_str,
+        vits_task_queue,
+        audio_task_queue,
+        event_vits_process_initialized,
+        event_is_speaking)
     vits_process.start()
 
     event_audio_player_process_initialized = multiprocessing.Event()
     subtitle_task_queue = multiprocessing.Queue()
 
-    audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue, event_audio_player_process_initialized)
+    audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue,
+                                              event_audio_player_process_initialized)
     audio_player_process.start()
 
     event_subtitle_bar_process_initialized = multiprocessing.Event()
@@ -919,4 +930,3 @@ if __name__ == '__main__':
     live_comment_process.join()
     audio_player_process.join()
     subtitle_bar_process.join()
-    
