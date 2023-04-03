@@ -31,6 +31,8 @@ from vits.text import text_to_sequence
 import subtitle
 import prompt_hot_update
 
+import song_singer
+
 
 class VITSProcess(multiprocessing.Process):
     def __init__(
@@ -802,7 +804,7 @@ class BarragePollingProcess(multiprocessing.Process):
 preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你说话简练。"
 
 if __name__ == '__main__':
-    room_id = "27000236"
+    room_id = ""
     # prompt_queue = multiprocessing.Queue()
 
     greeting_queue = multiprocessing.Queue(maxsize=4)
@@ -821,6 +823,12 @@ if __name__ == '__main__':
     live_comment_process = LiveCommentProcess(room_id, greeting_queue, chat_queue, thanks_queue,
                                               event_live_comment_process_initialized, event_live_comment_process_stop)
     live_comment_process.start()
+
+    # leojkTest----------------------------------------
+    event_song_singer_process_initialized = multiprocessing.Event()
+    song_singer_process = song_singer.SongSingerProcess(chat_queue, thanks_queue, event_song_singer_process_initialized)
+    song_singer_process.start()
+    # leojkTest----------------------------------------
 
     vits_task_queue = multiprocessing.JoinableQueue()
 
@@ -851,7 +859,7 @@ if __name__ == '__main__':
 
     audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue,
                                               event_audio_player_process_initialized)
-    audio_player_process.start()
+    # audio_player_process.start()# leojkTest----------------------------------------
 
     event_subtitle_bar_process_initialized = multiprocessing.Event()
 
@@ -861,6 +869,7 @@ if __name__ == '__main__':
     event_subtitle_bar_process_initialized.wait()
 
     event_live_comment_process_initialized.wait()
+    event_song_singer_process_initialized.wait()  # leojkTest----------------------------------------
     event_chat_gpt_process_initialized.wait()
     event_vits_process_initialized.wait()
     # event_barrage_polling_process_initialized.wait()
@@ -905,6 +914,7 @@ if __name__ == '__main__':
             else:
                 chat_gpt_process.set_streamed_enabled(True)
                 print("Enable ChatGPT streamed")
+
         elif user_input == '8':
             print("Reset ChatGPT")
             chat_task = ChatTask(None, "#reset", 'chat')
@@ -928,5 +938,6 @@ if __name__ == '__main__':
     chat_gpt_process.join()
     # barrage_polling_process.join()
     live_comment_process.join()
+    song_singer_process.join()  # leojkTest----------------------------------------
     audio_player_process.join()
     subtitle_bar_process.join()
