@@ -258,8 +258,6 @@ class SongMixer:
         self.vox_plr = SongPlayer(is_vox=True, song_list=self.song_list)
         self.bgm_plr = SongPlayer(is_vox=False, song_list=self.song_list)
         self.display = Display(self.song_list)
-        # self.display_thread = threading.Thread(target=self.display.display_list(), daemon=True)
-        # self.run_menu_thread = threading.Thread(target=self.run_menu(), daemon=True)
 
     def run_menu(self):
         while True:
