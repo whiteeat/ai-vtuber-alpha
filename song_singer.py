@@ -11,11 +11,11 @@ import time
 
 from csvw.datatypes import xml
 
-"""python实现：总体歌单"""
+"""总体歌单"""
 
 
 class SongList:
-    def __init__(self):  # , filename: str = None, ):
+    def __init__(self):
         self.song_dir = rf"music/"  # 本地音乐库的路径
         self.vox_files: list = []
         self.bgm_files: list = []
@@ -39,7 +39,7 @@ class SongList:
                 self.bgm_files.append(filename)
 
 
-"""pyaudio实现：随时播放和暂停1个wav音频"""
+"""播放音频"""
 
 
 class SongPlayer:
@@ -72,8 +72,10 @@ class SongPlayer:
         assert self.pau is not None
         self.virtual_audio_input_device_index = None
         self.virtual_audio_output_device_index = None
+        # Search for valid audio input and output devices
         for i in range(self.pau.get_device_count()):
             device_info = self.pau.get_device_info_by_index(i)
+            # print(f"devs:{device_info['name']}")
             if ("CABLE Output" in device_info['name'] and
                     device_info['hostApi'] == 0):
                 assert device_info['index'] == i
@@ -82,35 +84,12 @@ class SongPlayer:
                     device_info['hostApi'] == 0):
                 assert device_info['index'] == i
                 self.virtual_audio_output_device_index = i
-            if ("麦克风" in device_info['name'] and
-                    device_info['hostApi'] == 0):
-                assert device_info['index'] == i
-                self.audio_input_device_index = i
-            if ("扬声器" in device_info['name'] and
-                    device_info['hostApi'] == 0):
-                assert device_info['index'] == i
-                self.audio_output_device_index = i
-            if ("耳机" in device_info['name'] and
-                    device_info['hostApi'] == 0):
-                assert device_info['index'] == i
-                self.ear_audio_output_device_index = i
         if (self.virtual_audio_input_device_index is None or
                 self.virtual_audio_output_device_index is None):
             print("Error: no valid virtual audio devices found!!!")
             self.virtual_audio_devices_are_found = False
         else:
             self.virtual_audio_devices_are_found = True
-        if (self.audio_input_device_index is None or
-                self.audio_output_device_index is None):
-            print("Error: no valid audio devices found!!!")
-            self.audio_devices_are_found = False
-        else:
-            self.audio_devices_are_found = True
-        if (self.ear_audio_output_device_index is None):
-            print("Error: no valid audio devices found!!!")
-            self.ear_audio_devices_are_found = False
-        else:
-            self.ear_audio_devices_are_found = True
 
     def search_song(self) -> None:
         try:
@@ -148,18 +127,17 @@ class SongPlayer:
 
     def stream_audio(self):
         self.wavefile = wave.open(self.cur_song_file, 'rb')
-        if self.audio_devices_are_found and self.is_vox:
+        if self.virtual_audio_devices_are_found and self.is_vox:
             self.stream = self.pau.open(format=self.pau.get_format_from_width(self.wavefile.getsampwidth()),
                                         channels=self.wavefile.getnchannels(),
                                         rate=self.wavefile.getframerate(),
-                                        output=True,
+                                        output=True,  # 测试时耳机播
                                         output_device_index=self.virtual_audio_output_device_index)
         elif self.virtual_audio_devices_are_found and not self.is_vox:
             self.stream = self.pau.open(format=self.pau.get_format_from_width(self.wavefile.getsampwidth()),
                                         channels=self.wavefile.getnchannels(),
                                         rate=self.wavefile.getframerate(),
-                                        output=True,
-                                        output_device_index=self.audio_output_device_index)
+                                        output=True)
         data = self.wavefile.readframes(self.CHUNK)
         while self.playing and data:
             if not self.paused:
@@ -167,12 +145,14 @@ class SongPlayer:
                 self.stream.write(data)
                 data = self.wavefile.readframes(self.CHUNK)
         self.wavefile.rewind()
-        self.stream.close()  # 停播得把流停了，不然反复会撑爆内存
+        self.stream.close()
+        self.song_list.cur_song_index = -1
+        self.playing = False
 
     def play(self, search_name: str = None):
         self.search_name = search_name
         if self.search_name is None or self.search_name == '':
-            print("请输入：‘点歌XXX’")
+            print("请输入：‘点歌XXX’(如:点歌Win)")
         else:
             self.search_song()
             if self.is_song_found:
@@ -199,7 +179,7 @@ class SongPlayer:
         self.pau.terminate()
 
 
-"""pygame实现：显示"""
+"""实时显示"""
 
 
 class Display:
@@ -218,7 +198,7 @@ class Display:
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"发弹幕‘点歌XXX’", True, color)
+            text = self.font.render(f"发弹幕‘点歌XXX’(如:点歌Win)", True, color)
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
         else:
@@ -254,12 +234,11 @@ class Display:
         while True:
             try:
                 self.screen.fill((0, 127, 255))
-                # self.draw_menu()
                 self.draw_cur_song_name()
                 self.draw_vox_file_list()
                 self.draw_bgm_file_list()
                 pygame.display.flip()
-                self.clock.tick(30)  # 每秒30帧刷新
+                self.clock.tick(30)
             except Exception as e:
                 print(f"display_list报错:{e}")
 
@@ -270,7 +249,7 @@ class SongMixer:
         self.vox_plr = SongPlayer(is_vox=True, song_list=self.song_list)
         self.bgm_plr = SongPlayer(is_vox=False, song_list=self.song_list)
         self.display = Display(self.song_list)
-        self.display_thread = threading.Thread(target=self.display.display_list)
+        self.display_thread = threading.Thread(target=self.display.display_list, daemon=True)
 
     def run_display(self):
         self.display_thread.start()
@@ -280,31 +259,34 @@ class SongMixer:
             if self.song_list.song_files != ():
                 command = _msg
                 if command.startswith("点歌"):
-                    song_name = command[2:]
-                    if -1 != self.song_list.cur_song_index:
-                        self.vox_plr.stop()
-                        self.bgm_plr.stop()
-                    self.vox_plr.play(song_name)
-                    self.bgm_plr.play(song_name)
-                elif command.startswith("切歌"):
+                    if self.vox_plr.playing or self.bgm_plr.playing:  # 人声或音乐在播放
+                        print("正在播放，不可换歌！")
+                    else:  # 都不播放了
+                        song_name = command[2:]
+                        if -1 != self.song_list.cur_song_index:
+                            self.vox_plr.stop()
+                            self.bgm_plr.stop()
+                        self.vox_plr.play(song_name)
+                        self.bgm_plr.play(song_name)
+                elif command.startswith("666切歌"):
                     if -1 != self.song_list.cur_song_index:
                         self.vox_plr.stop()
                         self.bgm_plr.stop()
                     else:
-                        print("请先’点歌XXX‘")
-                elif "辣条" in command:
+                        print("请先‘点歌XXX’(如:点歌Win)")
+                elif "666辣条" == command:
                     self.vox_plr.set_volume(0.0)
                     self.bgm_plr.set_volume(0.8)
-                elif "歌唱" in command:
+                elif "666歌唱" == command:
                     self.vox_plr.set_volume(1.0)
                     self.bgm_plr.set_volume(1.0)
-                elif "暂停" in command:
+                elif "666暂停" == command:
                     self.vox_plr.pause()
                     self.bgm_plr.pause()
-                elif "继续" in command:
+                elif "666继续" == command:
                     self.vox_plr.resume()
                     self.bgm_plr.resume()
-                elif command.startswith("退出"):
+                elif "666退出" == command:
                     self.vox_plr.close()
                     self.bgm_plr.close()
                     self.display_thread.join()
@@ -320,6 +302,60 @@ class SongMixer:
         except Exception as e:
             print(f"报menu错:{e}")
 
+    def cmd_menu(self):
+        while True:
+            try:
+                while True:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            pygame.quit()
+                    break
+                if self.song_list.song_files != ():
+                    command = input("请输入命令：点歌XXX 切歌 辣条 歌唱 暂停 继续 退出")
+                    if command.startswith("点歌"):
+                        if self.vox_plr.playing or self.bgm_plr.playing:  # 人声或音乐在播放
+                            print("正在播放，不可换歌！")
+                        else:  # 都不播放了
+                            song_name = command[2:]
+                            if -1 != self.song_list.cur_song_index:
+                                self.vox_plr.stop()
+                                self.bgm_plr.stop()
+                            self.vox_plr.play(song_name)
+                            self.bgm_plr.play(song_name)
+                    elif command.startswith("切歌"):
+                        if -1 != self.song_list.cur_song_index:
+                            self.vox_plr.stop()
+                            self.bgm_plr.stop()
+                        else:
+                            print("请先‘点歌XXX’(如:点歌Win)")
+                    elif "辣条" == command:
+                        self.vox_plr.set_volume(0.0)
+                        self.bgm_plr.set_volume(0.8)
+                    elif "歌唱" == command:
+                        self.vox_plr.set_volume(1.0)
+                        self.bgm_plr.set_volume(1.0)
+                    elif "暂停" == command:
+                        self.vox_plr.pause()
+                        self.bgm_plr.pause()
+                    elif "继续" == command:
+                        self.vox_plr.resume()
+                        self.bgm_plr.resume()
+                    elif "退出" == command:
+                        self.vox_plr.close()
+                        self.bgm_plr.close()
+                        self.display_thread.join()
+                        pygame.quit()
+                    else:
+                        print("无效命令！")
+                else:
+                    self.vox_plr.close()
+                    self.bgm_plr.close()
+                    self.display_thread.join()
+                    pygame.quit()
+                    print("歌单为空！")
+            except Exception as e:
+                print(f"报menu错:{e}")
+
 
 class SongSingerProcess(multiprocessing.Process):
     def __init__(self, chat_queue, thanks_queue, event_init):
@@ -330,10 +366,10 @@ class SongSingerProcess(multiprocessing.Process):
         self.event_init = event_init
         self.singer = None
         self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
-        self.song_mixer = SongMixer()
 
     def run(self):
-        self.song_mixer.run_display()
+        song_mixer = SongMixer()
+        song_mixer.run_display()
         proc_name = self.name
         print(f"Initializing {proc_name}...")
         self.event_init.set()
@@ -346,25 +382,35 @@ class SongSingerProcess(multiprocessing.Process):
                     print(f"{proc_name}: Exiting")
                     break
                 self.msg = task.message
-                self.song_mixer.run(msg)
+                song_mixer.run(self.msg)
                 while True:
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT:
                             pygame.quit()
                     break
 
-
-if __name__ == '__main__':
-    song_mixer = SongMixer()
-    song_mixer.run_display()
-    while True:
-        x = ['', '切歌', '点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌XXX', '辣条', '歌唱']
-        msg = random.sample(x, 1)[0]
-        print(f"当前弹幕：{msg}")
-        song_mixer.run(msg)
-        time.sleep(10)
-        while True:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-            break
+# if __name__ == '__main__':
+#     song_mixer = SongMixer()
+#     song_mixer.run_display()
+#     cmd = input("输入命令1or2：1、指令菜单 2、暴力测试")
+#     if cmd == '1':
+#         song_mixer.cmd_menu()
+#     elif cmd == '2':
+#         while True:
+#             # x = ['', '切歌', '点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌XXX', '辣条', '歌唱']
+#             # x = ['', '切歌', '点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌Win', '点歌恋爱', '点歌你的', '点歌感谢',
+#             #      '点歌Make', '点歌闪耀', '点歌梦翔']
+#             # x = ['点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌Win', '点歌恋爱', '点歌你的', '点歌感谢', '点歌Make',
+#             #      '点歌闪耀', '点歌梦翔']
+#             x = ['切歌', '点歌', '点歌嫩叠', '点歌Make', '点歌闪耀', '点歌梦翔']
+#             msg = random.sample(x, 1)[0]
+#             print(f"当前弹幕：{msg}")
+#             song_mixer.run(msg)
+#             time.sleep(1)
+#             while True:
+#                 for event in pygame.event.get():
+#                     if event.type == pygame.QUIT:
+#                         pygame.quit()
+#                 break
+#     else:
+#         print("无效命令！！！")
