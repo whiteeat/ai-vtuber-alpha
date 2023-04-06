@@ -345,6 +345,7 @@ class SongMixer:
                         self.bgm_plr.close()
                         self.display_thread.join()
                         pygame.quit()
+                        break
                     else:
                         print("无效命令！")
                 else:
@@ -397,16 +398,12 @@ class SongSingerProcess(multiprocessing.Process):
 #         song_mixer.cmd_menu()
 #     elif cmd == '2':
 #         while True:
-#             # x = ['', '切歌', '点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌XXX', '辣条', '歌唱']
-#             # x = ['', '切歌', '点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌Win', '点歌恋爱', '点歌你的', '点歌感谢',
-#             #      '点歌Make', '点歌闪耀', '点歌梦翔']
-#             # x = ['点歌', '点歌嫩叠', '点歌Tear', '点歌End', '点歌Win', '点歌恋爱', '点歌你的', '点歌感谢', '点歌Make',
-#             #      '点歌闪耀', '点歌梦翔']
-#             x = ['切歌', '点歌', '点歌嫩叠', '点歌Make', '点歌闪耀', '点歌梦翔']
+#             x = ['点歌嫩叠', '点歌Make', '点歌闪耀', '点歌梦翔']
+#             # x = ['切歌', '点歌', '点歌嫩叠', '点歌Make', '点歌闪耀', '点歌梦翔']
 #             msg = random.sample(x, 1)[0]
 #             print(f"当前弹幕：{msg}")
 #             song_mixer.run(msg)
-#             time.sleep(1)
+#             time.sleep(30)
 #             while True:
 #                 for event in pygame.event.get():
 #                     if event.type == pygame.QUIT:
