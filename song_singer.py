@@ -63,19 +63,16 @@ class SongList:
 class SongPlayer:
     CHUNK = 1024
 
-    def __init__(self, song_list: SongList, is_vox: bool):
+    def __init__(self, song_list: SongList):
         self.song_list = song_list
-        self.is_vox = is_vox
         self.virtual_audio_output_device_index = None
         self.virtual_audio_input_device_index = None
         self.virtual_audio_devices_are_found = False
-        self.search_name = None
         self.pau = pyaudio.PyAudio()
         self.get_device_indices()
         self.song_dict = None
-        self.wavefile = None
-        self.stream = None
-        self.volume = 1.0
+        self.vox_volume = 1.0
+        self.bgm_volume = 1.0
         self.playing = False
         self.paused = False
         self.stream_thread = threading.Thread(target=self.stream_audio)
@@ -101,8 +98,8 @@ class SongPlayer:
         else:
             self.virtual_audio_devices_are_found = True
 
-    def change_volume(self, data) -> bytes:
-        volume = min(1.0, max(0.0, self.volume))
+    def change_volume(self, data, _volume) -> bytes:
+        volume = min(1.0, max(0.0, _volume))
         data = bytearray(data)
         for i in range(0, len(data), 2):
             sample = int.from_bytes(data[i:i + 2], byteorder='little', signed=True)
@@ -111,29 +108,35 @@ class SongPlayer:
         return bytes(data)
 
     def stream_audio(self):
-        if self.virtual_audio_devices_are_found and self.is_vox:
-            self.wavefile = wave.open(self.song_dict['vox'], 'rb')
-            self.stream = self.pau.open(format=self.pau.get_format_from_width(self.wavefile.getsampwidth()),
-                                        channels=self.wavefile.getnchannels(),
-                                        rate=self.wavefile.getframerate(),
-                                        output=True,  # 测试时耳机播
-                                        output_device_index=self.virtual_audio_output_device_index)
-        elif self.virtual_audio_devices_are_found and not self.is_vox:
-            self.wavefile = wave.open(self.song_dict['bgm'], 'rb')
-            self.stream = self.pau.open(format=self.pau.get_format_from_width(self.wavefile.getsampwidth()),
-                                        channels=self.wavefile.getnchannels(),
-                                        rate=self.wavefile.getframerate(),
-                                        output=True)
-        data = self.wavefile.readframes(self.CHUNK)
-        while self.playing and data:
-            if not self.paused:
-                data = self.change_volume(data)
-                self.stream.write(data)
-                data = self.wavefile.readframes(self.CHUNK)
-        self.wavefile.rewind()
-        self.stream.close()
-        self.playing = False
-        self.song_list.cur_song_index = -1
+        if self.virtual_audio_devices_are_found:
+            vox_wave = wave.open(self.song_dict['vox'], 'rb')
+            vox_stream = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
+                                       channels=vox_wave.getnchannels(),
+                                       rate=vox_wave.getframerate(),
+                                       output=True,  # 测试时耳机播
+                                       output_device_index=self.virtual_audio_output_device_index)
+            bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
+            bgm_stream = self.pau.open(format=self.pau.get_format_from_width(bgm_wave.getsampwidth()),
+                                       channels=bgm_wave.getnchannels(),
+                                       rate=bgm_wave.getframerate(),
+                                       output=True)
+            vox_data = vox_wave.readframes(self.CHUNK)
+            bgm_data = bgm_wave.readframes(self.CHUNK)
+            while self.playing and vox_data and bgm_data:
+                if not self.paused:
+                    vox_data = self.change_volume(vox_data, self.vox_volume)
+                    bgm_data = self.change_volume(bgm_data, self.bgm_volume)
+                    vox_stream.write(vox_data)
+                    bgm_stream.write(bgm_data)
+                    time.sleep(self.CHUNK / 2 / vox_wave.getframerate())
+                    vox_data = vox_wave.readframes(self.CHUNK)
+                    bgm_data = bgm_wave.readframes(self.CHUNK)
+            vox_wave.rewind()
+            bgm_wave.rewind()
+            vox_stream.close()
+            bgm_stream.close()
+            self.playing = False
+            self.song_list.cur_song_index = -1
 
     def play(self, query: str):
         self.song_dict = self.song_list.search_song(query)
@@ -143,8 +146,9 @@ class SongPlayer:
             self.stream_thread.start()
             print(f"SONG:{self.song_dict['name']} is playing...")
 
-    def set_volume(self, volume):
-        self.volume = volume
+    def set_volume(self, vox_volume, bgm_volume):
+        self.vox_volume = vox_volume
+        self.bgm_volume = bgm_volume
 
     def stop(self):
         self.playing = False
@@ -166,7 +170,8 @@ class Display:
     def __init__(self, song_list: SongList):
         pygame.init()
         self.song_list = song_list
-        self.font = pygame.font.SysFont('SimHei', 28)
+        self.font = pygame.font.SysFont('SimHei', 20)
+        self.title_font = pygame.font.SysFont('幼圆', 22)
         self.screen_width = 960
         self.screen_height = 720
         self.clock = pygame.time.Clock()
@@ -178,14 +183,14 @@ class Display:
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"发弹幕'点歌X'(如:点歌3/点歌Tea)", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 4, y))
+            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌Tea)", True, color)
+            text_rect = text.get_rect(center=(self.screen_width / 6, y))
             self.screen.blit(text, text_rect)
         else:
             color = (0, 255, 255)
             current_song = self.song_list.vox_files[cur_show_index][6:-7]
-            text = self.font.render(f"★" + current_song + f"★", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 5, y))
+            text = self.title_font.render(f"★" + current_song + f"★", True, color)
+            text_rect = text.get_rect(center=(self.screen_width / 6, y))
             self.screen.blit(text, text_rect)
 
     def draw_vox_file_list(self):
@@ -197,7 +202,7 @@ class Display:
                 color = (255, 255, 255)
             text = self.font.render(f'{i + 1}.' + self.song_list.vox_files[i][6:-7], True, color)
             self.screen.blit(text, (10, y))
-            y += 30
+            y += 25
 
     def draw_bgm_file_list(self):
         y = 50
@@ -208,7 +213,7 @@ class Display:
                 color = (255, 255, 255)
             text = self.font.render(self.song_list.bgm_files[i][6:-7], True, color)
             self.screen.blit(text, (self.screen_width / 2, y))
-            y += 30
+            y += 25
 
     def display_list(self):
         while True:
@@ -226,8 +231,7 @@ class Display:
 class SongMixer:
     def __init__(self):
         self.song_list = SongList()
-        self.vox_plr = SongPlayer(is_vox=True, song_list=self.song_list)
-        self.bgm_plr = SongPlayer(is_vox=False, song_list=self.song_list)
+        self.song_plr = SongPlayer(song_list=self.song_list)
         self.display = Display(self.song_list)
         self.display_thread = None
 
@@ -240,43 +244,34 @@ class SongMixer:
             if self.song_list.song_dicts != [{}]:
                 command = _msg
                 if command.startswith("点歌"):
-                    if self.vox_plr.playing or self.bgm_plr.playing:
+                    if self.song_plr.playing:
                         print("正在播放，不可换歌！")
                     else:
                         query = command[2:]
                         if -1 != self.song_list.cur_song_index:
-                            self.vox_plr.stop()
-                            self.bgm_plr.stop()
-                        self.vox_plr.play(query)
-                        self.bgm_plr.play(query)
+                            self.song_plr.stop()
+                        self.song_plr.play(query)
                 elif command.startswith("666切歌"):
                     if -1 != self.song_list.cur_song_index:
-                        self.vox_plr.stop()
-                        self.bgm_plr.stop()
+                        self.song_plr.stop()
                     else:
                         print("请先'点歌X'(如:点歌3/点歌Tea)")
                 elif "666辣条" == command:
-                    self.vox_plr.set_volume(0.0)
-                    self.bgm_plr.set_volume(0.8)
+                    self.song_plr.set_volume(vox_volume=0.0, bgm_volume=0.8)
                 elif "666歌唱" == command:
-                    self.vox_plr.set_volume(1.0)
-                    self.bgm_plr.set_volume(1.0)
+                    self.song_plr.set_volume(vox_volume=1.0, bgm_volume=1.0)
                 elif "666暂停" == command:
-                    self.vox_plr.pause()
-                    self.bgm_plr.pause()
+                    self.song_plr.pause()
                 elif "666继续" == command:
-                    self.vox_plr.resume()
-                    self.bgm_plr.resume()
+                    self.song_plr.resume()
                 elif "666退出" == command:
-                    self.vox_plr.close()
-                    self.bgm_plr.close()
+                    self.song_plr.close()
                     self.display_thread.join()
                     pygame.quit()
                 else:
                     print("无效命令！")
             else:
-                self.vox_plr.close()
-                self.bgm_plr.close()
+                self.song_plr.close()
                 self.display_thread.join()
                 pygame.quit()
                 print("歌单为空！")
@@ -296,39 +291,29 @@ class SongMixer:
                     if command.startswith("点歌"):
                         query = command[2:]
                         if -1 != self.song_list.cur_song_index:
-                            self.vox_plr.stop()
-                            self.bgm_plr.stop()
-                        self.vox_plr.play(query)
-                        self.bgm_plr.play(query)
+                            self.song_plr.stop()
+                        self.song_plr.play(query)
                     elif command.startswith("切歌"):
                         if -1 != self.song_list.cur_song_index:
-                            self.vox_plr.stop()
-                            self.bgm_plr.stop()
+                            self.song_plr.stop()
                         else:
                             print("请先'点歌X'(如:点歌3/点歌Tea)")
                     elif "辣条" == command:
-                        self.vox_plr.set_volume(0.0)
-                        self.bgm_plr.set_volume(0.8)
+                        self.song_plr.set_volume(vox_volume=0.0, bgm_volume=0.8)
                     elif "歌唱" == command:
-                        self.vox_plr.set_volume(1.0)
-                        self.bgm_plr.set_volume(1.0)
+                        self.song_plr.set_volume(vox_volume=1.0, bgm_volume=1.0)
                     elif "暂停" == command:
-                        self.vox_plr.pause()
-                        self.bgm_plr.pause()
+                        self.song_plr.pause()
                     elif "继续" == command:
-                        self.vox_plr.resume()
-                        self.bgm_plr.resume()
+                        self.song_plr.resume()
                     elif "退出" == command:
-                        self.vox_plr.close()
-                        self.bgm_plr.close()
+                        self.song_plr.close()
                         self.display_thread.join()
                         pygame.quit()
-                        break
                     else:
                         print("无效命令！")
                 else:
-                    self.vox_plr.close()
-                    self.bgm_plr.close()
+                    self.song_plr.close()
                     self.display_thread.join()
                     pygame.quit()
                     print("歌单为空！")
