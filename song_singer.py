@@ -3,7 +3,7 @@ import ctypes
 import random
 import threading
 import pyaudio
-import pygame
+# import pygame
 import wave
 import os
 import time
@@ -77,6 +77,10 @@ class SongPlayer:
         self.paused = False
         self.stream_thread = threading.Thread(target=self.stream_audio)
 
+        # Events
+        self.on_play = None
+        self.on_stop = None
+
     def get_device_indices(self) -> None:
         assert self.pau is not None
         self.virtual_audio_input_device_index = None
@@ -109,6 +113,9 @@ class SongPlayer:
 
     def stream_audio(self):
         if self.virtual_audio_devices_are_found:
+            if self.on_play is not None:
+                self.on_play()
+
             vox_wave = wave.open(self.song_dict['vox'], 'rb')
             vox_stream = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
                                        channels=vox_wave.getnchannels(),
@@ -120,31 +127,43 @@ class SongPlayer:
                                        channels=bgm_wave.getnchannels(),
                                        rate=bgm_wave.getframerate(),
                                        output=True)
-            vox_data = vox_wave.readframes(self.CHUNK)
-            bgm_data = bgm_wave.readframes(self.CHUNK)
-            while self.playing and vox_data and bgm_data:
+
+            while self.playing:
                 if not self.paused:
-                    vox_data = self.change_volume(vox_data, self.vox_volume)
-                    bgm_data = self.change_volume(bgm_data, self.bgm_volume)
-                    vox_stream.write(vox_data)
-                    bgm_stream.write(bgm_data)
-                    time.sleep(self.CHUNK / 2 / vox_wave.getframerate())
                     vox_data = vox_wave.readframes(self.CHUNK)
                     bgm_data = bgm_wave.readframes(self.CHUNK)
-            vox_wave.rewind()
-            bgm_wave.rewind()
+                    # vox_data = self.change_volume(vox_data, self.vox_volume)
+                    # bgm_data = self.change_volume(bgm_data, self.bgm_volume)
+                    vox_stream.write(vox_data)
+                    bgm_stream.write(bgm_data)
+                else:
+                    time.sleep(0.1)
+
+            vox_wave.close()
+            bgm_wave.close()
             vox_stream.close()
             bgm_stream.close()
             self.playing = False
             self.song_list.cur_song_index = -1
 
+            if self.on_stop is not None:
+                self.on_stop()
+
     def play(self, query: str):
         self.song_dict = self.song_list.search_song(query)
+
+        success = False
         if self.song_dict:
             self.playing = True
             self.stream_thread = threading.Thread(target=self.stream_audio)
             self.stream_thread.start()
             print(f"SONG:{self.song_dict['name']} is playing...")
+            success = True
+        else:
+            if self.on_stop is not None:
+                self.on_stop()
+        
+        return success
 
     def set_volume(self, vox_volume, bgm_volume):
         self.vox_volume = vox_volume
@@ -166,78 +185,84 @@ class SongPlayer:
         self.pau.terminate()
 
 
-class Display:
-    def __init__(self, song_list: SongList):
-        pygame.init()
-        self.song_list = song_list
-        self.font = pygame.font.SysFont('SimHei', 20)
-        self.title_font = pygame.font.SysFont('幼圆', 22)
-        self.screen_width = 960
-        self.screen_height = 720
-        self.clock = pygame.time.Clock()
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption("优俊歌者")
+# class Display:
+#     def __init__(self, song_list: SongList):
+#         pygame.init()
+#         self.song_list = song_list
+#         self.font = pygame.font.SysFont('SimHei', 20)
+#         self.title_font = pygame.font.SysFont('幼圆', 22)
+#         self.screen_width = 960
+#         self.screen_height = 720
+#         self.clock = pygame.time.Clock()
+#         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+#         pygame.display.set_caption("优俊歌者")
 
-    def draw_cur_song_name(self):
-        y = 20
-        cur_show_index = self.song_list.cur_song_index
-        if -1 == cur_show_index:
-            color = (255, 255, 0)
-            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌Tea)", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 6, y))
-            self.screen.blit(text, text_rect)
-        else:
-            color = (0, 255, 255)
-            current_song = self.song_list.vox_files[cur_show_index][6:-7]
-            text = self.title_font.render(f"★" + current_song + f"★", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 6, y))
-            self.screen.blit(text, text_rect)
+#     def draw_cur_song_name(self):
+#         y = 20
+#         cur_show_index = self.song_list.cur_song_index
+#         if -1 == cur_show_index:
+#             color = (255, 255, 0)
+#             text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌Tea)", True, color)
+#             text_rect = text.get_rect(center=(self.screen_width / 6, y))
+#             self.screen.blit(text, text_rect)
+#         else:
+#             color = (0, 255, 255)
+#             current_song = self.song_list.vox_files[cur_show_index][6:-7]
+#             text = self.title_font.render(f"★" + current_song + f"★", True, color)
+#             text_rect = text.get_rect(center=(self.screen_width / 6, y))
+#             self.screen.blit(text, text_rect)
 
-    def draw_vox_file_list(self):
-        y = 50
-        for i in range(len(self.song_list.vox_files)):
-            if i == self.song_list.cur_song_index:
-                color = (0, 255, 127)
-            else:
-                color = (255, 255, 255)
-            text = self.font.render(f'{i + 1}.' + self.song_list.vox_files[i][6:-7], True, color)
-            self.screen.blit(text, (10, y))
-            y += 25
+#     def draw_vox_file_list(self):
+#         y = 50
+#         for i in range(len(self.song_list.vox_files)):
+#             if i == self.song_list.cur_song_index:
+#                 color = (0, 255, 127)
+#             else:
+#                 color = (255, 255, 255)
+#             text = self.font.render(f'{i + 1}.' + self.song_list.vox_files[i][6:-7], True, color)
+#             self.screen.blit(text, (10, y))
+#             y += 25
 
-    def draw_bgm_file_list(self):
-        y = 50
-        for i in range(len(self.song_list.bgm_files)):
-            if i == self.song_list.cur_song_index:
-                color = (127, 255, 0)
-            else:
-                color = (255, 255, 255)
-            text = self.font.render(self.song_list.bgm_files[i][6:-7], True, color)
-            self.screen.blit(text, (self.screen_width / 2, y))
-            y += 25
+#     def draw_bgm_file_list(self):
+#         y = 50
+#         for i in range(len(self.song_list.bgm_files)):
+#             if i == self.song_list.cur_song_index:
+#                 color = (127, 255, 0)
+#             else:
+#                 color = (255, 255, 255)
+#             text = self.font.render(self.song_list.bgm_files[i][6:-7], True, color)
+#             self.screen.blit(text, (self.screen_width / 2, y))
+#             y += 25
 
-    def display_list(self):
-        while True:
-            try:
-                self.screen.fill((0, 127, 255))
-                self.draw_cur_song_name()
-                self.draw_vox_file_list()
-                self.draw_bgm_file_list()
-                pygame.display.flip()
-                self.clock.tick(30)
-            except Exception as e:
-                print(f"display_list报错:{e}")
+#     def display_list(self):
+#         while True:
+#             try:
+#                 self.screen.fill((0, 127, 255))
+#                 self.draw_cur_song_name()
+#                 self.draw_vox_file_list()
+#                 self.draw_bgm_file_list()
+#                 pygame.display.flip()
+#                 self.clock.tick(30)
+#             except Exception as e:
+#                 print(f"display_list报错:{e}")
 
 
 class SongMixer:
     def __init__(self):
         self.song_list = SongList()
         self.song_plr = SongPlayer(song_list=self.song_list)
-        self.display = Display(self.song_list)
-        self.display_thread = None
+        # self.display = Display(self.song_list)
+        # self.display_thread = None
 
-    def run_display(self):
-        self.display_thread = threading.Thread(target=self.display.display_list, daemon=True)
-        self.display_thread.start()
+    # def run_display(self):
+    #     self.display_thread = threading.Thread(target=self.display.display_list, daemon=True)
+    #     self.display_thread.start()
+
+    def set_on_play_event(self, func):
+        self.song_plr.on_play = func
+    
+    def set_on_stop_event(self, func):
+        self.song_plr.on_stop = func
 
     def run(self, _msg: str = None):
         try:
@@ -250,9 +275,11 @@ class SongMixer:
                         query = command[2:]
                         if -1 != self.song_list.cur_song_index:
                             self.song_plr.stop()
-                        self.song_plr.play(query)
+
+                        success = self.song_plr.play(query)
+
                 elif command.startswith("666切歌"):
-                    if -1 != self.song_list.cur_song_index:
+                    if -1 != self.song_list.cur_song_index and self.song_plr.playing:
                         self.song_plr.stop()
                     else:
                         print("请先'点歌X'(如:点歌3/点歌Tea)")
@@ -266,14 +293,14 @@ class SongMixer:
                     self.song_plr.resume()
                 elif "666退出" == command:
                     self.song_plr.close()
-                    self.display_thread.join()
-                    pygame.quit()
+                    # self.display_thread.join()
+                    # pygame.quit()
                 else:
                     print("无效命令！")
             else:
                 self.song_plr.close()
-                self.display_thread.join()
-                pygame.quit()
+                # self.display_thread.join()
+                # pygame.quit()
                 print("歌单为空！")
         except Exception as e:
             print(f"报menu错:{e}")
@@ -281,11 +308,11 @@ class SongMixer:
     def cmd_menu(self):
         while True:
             try:
-                while True:
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            pygame.quit()
-                    break
+                # while True:
+                #     for event in pygame.event.get():
+                #         if event.type == pygame.QUIT:
+                #             pygame.quit()
+                #     break
                 if self.song_list.song_dicts != [{}]:
                     command = input("请输入命令：点歌X(X:歌名/序号) 切歌 辣条 歌唱 暂停 继续 退出")
                     if command.startswith("点歌"):
@@ -308,55 +335,66 @@ class SongMixer:
                         self.song_plr.resume()
                     elif "退出" == command:
                         self.song_plr.close()
-                        self.display_thread.join()
-                        pygame.quit()
+                        # self.display_thread.join()
+                        # pygame.quit()
                     else:
                         print("无效命令！")
                 else:
                     self.song_plr.close()
-                    self.display_thread.join()
-                    pygame.quit()
+                    # self.display_thread.join()
+                    # pygame.quit()
                     print("歌单为空！")
             except Exception as e:
                 print(f"报menu错:{e}")
 
 
 class SongSingerProcess(multiprocessing.Process):
-    def __init__(self, chat_queue, thanks_queue, event_init):
+    def __init__(self, sing_queue, cmd_queue, event_init):
         super().__init__()
-        self.chat_queue = chat_queue
-        self.msg = None
-        self.thanks_queue = thanks_queue
+        self.sing_queue = sing_queue
+        self.cmd_queue = cmd_queue
         self.event_init = event_init
-        self.singer = None
-        self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
+
+        # self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
 
     def run(self):
         song_mixer = SongMixer()
-        song_mixer.run_display()
+        # song_mixer.run_display()
         proc_name = self.name
         print(f"Initializing {proc_name}...")
-        self.event_init.set()
-        print(f"{proc_name} is working...")
-        while True:
-            if not self.chat_queue.empty():
-                print("Singer gets a task from chat_queue.")
-                task = self.chat_queue.get()
-                if task is None:
-                    print(f"{proc_name}: Exiting")
-                    break
-                self.msg = task.message
-                song_mixer.run(self.msg)
-                while True:
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            pygame.quit()
-                    break
 
+        song_mixer.set_on_play_event(self.on_start_singing)
+        song_mixer.set_on_stop_event(self.on_stop_singing)
+
+        self.event_init.set()
+
+        while True:
+            print(f"{proc_name} is working...")
+            # if not self.sing_queue.empty():
+            print("Singer gets a task from sing_queue.")
+            cmd_sing = self.sing_queue.get()
+            if cmd_sing is None:
+                print(f"{proc_name}: Exiting")
+                break
+
+            song_mixer.run(cmd_sing)
+
+            # while True:
+            #     for event in pygame.event.get():
+            #         if event.type == pygame.QUIT:
+            #             pygame.quit()
+            #     break
+            
+    
+    def on_start_singing(self):
+        self.cmd_queue.put("#唱歌开始")
+    
+    def on_stop_singing(self):
+        self.cmd_queue.put("#唱歌结束")
 
 if __name__ == '__main__':
     song_mixer = SongMixer()
-    song_mixer.run_display()
+    # song_mixer.run_display()
     cmd = input("输入命令1or2：1、指令菜单 2、暴力测试")
     if cmd == '1':
         song_mixer.cmd_menu()
@@ -367,10 +405,10 @@ if __name__ == '__main__':
             print(f"当前弹幕：{msg}")
             song_mixer.run(msg)
             time.sleep(1)
-            while True:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        pygame.quit()
-                break
+            # while True:
+            #     for event in pygame.event.get():
+            #         if event.type == pygame.QUIT:
+            #             pygame.quit()
+            #     break
     else:
         print("无效命令！！！")
