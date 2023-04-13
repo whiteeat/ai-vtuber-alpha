@@ -131,11 +131,17 @@ class SongPlayer:
             while self.playing:
                 if not self.paused:
                     vox_data = vox_wave.readframes(self.CHUNK)
+                    if len(vox_data) != 0:
+                        # vox_data = self.change_volume(vox_data, self.vox_volume)
+                        vox_stream.write(vox_data)
+                    
                     bgm_data = bgm_wave.readframes(self.CHUNK)
-                    # vox_data = self.change_volume(vox_data, self.vox_volume)
-                    # bgm_data = self.change_volume(bgm_data, self.bgm_volume)
-                    vox_stream.write(vox_data)
-                    bgm_stream.write(bgm_data)
+                    if len(bgm_data) != 0:
+                        # bgm_data = self.change_volume(bgm_data, self.bgm_volume)
+                        bgm_stream.write(bgm_data)
+
+                    if len(vox_data) == 0 and len(bgm_data) == 0:
+                        break
                 else:
                     time.sleep(0.1)
 
