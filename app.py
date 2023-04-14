@@ -274,7 +274,7 @@ class ChatGPTProcess(multiprocessing.Process):
         self.event_initialized = event_initialized
 
         self.use_streamed = multiprocessing.Value(ctypes.c_bool, False)
-        self.enable_vits = multiprocessing.Value(ctypes.c_bool, False)
+        self.enable_vits = multiprocessing.Value(ctypes.c_bool, True)
         
         self.app_state = app_state
 
@@ -296,6 +296,8 @@ class ChatGPTProcess(multiprocessing.Process):
 
         system_msg_updater = prompt_hot_update.SystemMessageUpdater()
         system_msg_updater.start(60.0)
+
+        song_list = song_singer.SongList()
 
         use_access_token = False
         use_api_key = False
@@ -369,11 +371,76 @@ class ChatGPTProcess(multiprocessing.Process):
 
                     if task.message.startswith("点歌"):
                         cmd_sing_str = task.message 
-                        song_name = cmd_sing_str[2:]
-                        request_a_song_msg = f"{task.user_name}点歌{song_name}"
-                        vits_task = VITSTask(request_a_song_msg, cmd_sing=cmd_sing_str)
-                        self.vits_task_queue.put(vits_task)
-                        self.app_state.value = AppState.PRESING
+                        song_alias = cmd_sing_str[2:]
+
+                        user_name = task.user_name
+                        song_dict = song_list.search_song(song_alias)
+                        channel = 'sing'
+
+                        if song_dict is not None:
+                            system_msg = SystemMessageManager.get_sing_accept_sm(user_name)
+                        else:
+                            system_msg = SystemMessageManager.get_sing_refuse_sm(user_name)
+
+                        chatbot.reset(convo_id=channel, system_prompt=system_msg)
+
+                        if song_dict is not None:
+                            song_name = song_dict['name']
+                        else:
+                            song_name = song_alias
+
+                        request_a_song_msg = f"请你唱一首“{song_name}”！"
+
+                        cmd_sing = None
+                        if song_dict is not None:
+                            cmd_sing = f"点歌{song_name}"
+
+                        try:
+                            new_sentence = ""
+                            vits_task = None
+                            for data in chatbot.ask(prompt=request_a_song_msg, convo_id=channel):
+                                print(data, end="", flush=True)
+
+                                if vits_task is not None:
+                                    self.vits_task_queue.put(vits_task)
+                                    vits_task = None
+
+                                should_split = False
+                                new_sentence += data
+                                if len(new_sentence) >= min_sentence_length:
+                                    if new_sentence[-1] in punctuations_to_split_text:
+                                        should_split = True
+                                    elif len(new_sentence) >= sentence_longer_threshold:
+                                        if new_sentence[-1] in punctuations_to_split_text_longer:
+                                            should_split = True
+
+                                # If code reaches here, meaning that the request to ChatGPT is successful.
+                                if self.is_vits_enabled():
+                                    if should_split:
+                                        vits_task = VITSTask(new_sentence.strip())
+                                        new_sentence = ""
+
+                            if self.is_vits_enabled():
+                                if vits_task is not None:
+                                    assert len(new_sentence) == 0
+                                    vits_task.cmd_sing = cmd_sing
+                                else:
+                                    vits_task = VITSTask(new_sentence.strip(), cmd_sing=cmd_sing)
+
+                                self.vits_task_queue.put(vits_task)
+
+                        except Exception as e:
+                            if cmd_sing is not None:
+                                response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_name}。"
+                            else:
+                                response_to_song_request_msg = f"对不起，{user_name}同学，我不会唱你点的这首歌。"
+                            
+                            vits_task = VITSTask(response_to_song_request_msg, cmd_sing=cmd_sing)
+                            self.vits_task_queue.put(vits_task)
+
+                        # request_a_song_msg = f"{task.user_name}点歌{song_name}"
+                        if cmd_sing is not None:
+                            self.app_state.value = AppState.PRESING
                         continue
 
                 elif not self.greeting_queue.empty():
@@ -597,6 +664,7 @@ class LiveCommentProcess(multiprocessing.Process):
             print('[Notice] Sent HeartBeat.')
 
             if self.event_stop.is_set():
+                print("sendHeartBeat ends.")
                 break
 
     async def recvDM(self, websocket):
@@ -610,6 +678,7 @@ class LiveCommentProcess(multiprocessing.Process):
                 self.processDM(recv_text)
 
             if self.event_stop.is_set():
+                print("recvDM ends.")
                 break
 
     def processDM(self, data):
@@ -736,6 +805,7 @@ class LiveCommentProcess(multiprocessing.Process):
         try:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(self.startup(self.room_id))
+            print(f"{proc_name} exits.")
         except Exception as e:
             print(e)
             print('退出')
@@ -751,23 +821,27 @@ class LiveCommentProcess(multiprocessing.Process):
 
 preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你说话简练。"
 
-# class ProcessesManager:
+class SystemMessageManager:
+    # pre_sing_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，名叫“{t_song_name}”，你{t_if_know}唱，并且同意唱，这时你对这名观众说：（续写内容不要带""）"
 
+    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}“，正在与你互动。如果这位粉丝请你唱歌，你会答应唱歌，然后去后台准备了。注意，不要生成带（）的内容！不要有第三人称的描述！不要生成自己具体做了什么动作的内容！"
+
+    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}”，正在与你互动。这位粉丝要求你唱的歌你并不会唱，所以拒绝唱歌。"
+
+    def get_sing_accept_sm(user_name):
+        return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name)
+
+    def get_sing_refuse_sm(user_name):
+        return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
 
 if __name__ == '__main__':
-    room_id = ""
     app_state = multiprocessing.Value('i', AppState.CHAT)
 
+    room_id = "14655481"
 
     greeting_queue = multiprocessing.Queue(maxsize=2)
     chat_queue = multiprocessing.Queue(maxsize=3)
     thanks_queue = multiprocessing.Queue(maxsize=4)
-
-    # event_barrage_polling_process_initialized = multiprocessing.Event()
-    # event_barrage_polling_process_stop = multiprocessing.Event()
-
-    # barrage_polling_process = BarragePollingProcess(room_id, prompt_qeue, event_barrage_polling_process_initialized, event_barrage_polling_process_stop)
-    # barrage_polling_process.start()
 
     event_live_comment_process_initialized = multiprocessing.Event()
     event_live_comment_process_stop = multiprocessing.Event()
@@ -779,17 +853,15 @@ if __name__ == '__main__':
     cmd_queue = multiprocessing.Queue(maxsize=1)
     sing_queue = multiprocessing.Queue(maxsize=1)
 
-    # leojkTest----------------------------------------
     event_song_singer_process_initialized = multiprocessing.Event()
     song_singer_process = song_singer.SongSingerProcess(sing_queue, cmd_queue, event_song_singer_process_initialized)
     song_singer_process.start()
-    # leojkTest----------------------------------------
 
     vits_task_queue = multiprocessing.JoinableQueue()
 
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
-    api_key = ""
+    api_key = "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"
     chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
                                       app_state, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
@@ -824,10 +896,9 @@ if __name__ == '__main__':
     event_subtitle_bar_process_initialized.wait()
 
     event_live_comment_process_initialized.wait()
-    event_song_singer_process_initialized.wait()  # leojkTest----------------------------------------
+    event_song_singer_process_initialized.wait()
     event_chat_gpt_process_initialized.wait()
     event_vits_process_initialized.wait()
-    # event_barrage_polling_process_initialized.wait()
     event_audio_player_process_initialized.wait()
 
     while True:
@@ -887,7 +958,6 @@ if __name__ == '__main__':
                 cmd_queue.put("#唱歌结束")
                 sing_queue.put("666切歌")
 
-    # event_barrage_polling_process_stop.set()
     event_live_comment_process_stop.set()
     chat_queue.put(None)
     vits_task_queue.put(None)
@@ -898,8 +968,7 @@ if __name__ == '__main__':
 
     vits_process.join()
     chat_gpt_process.join()
-    # barrage_polling_process.join()
     live_comment_process.join()
-    song_singer_process.join()  # leojkTest----------------------------------------
+    song_singer_process.join()
     audio_player_process.join()
     subtitle_bar_process.join()
