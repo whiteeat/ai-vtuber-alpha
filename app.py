@@ -837,7 +837,7 @@ class SystemMessageManager:
 if __name__ == '__main__':
     app_state = multiprocessing.Value('i', AppState.CHAT)
 
-    room_id = "14655481"
+    room_id = ""
 
     greeting_queue = multiprocessing.Queue(maxsize=2)
     chat_queue = multiprocessing.Queue(maxsize=3)
@@ -861,7 +861,7 @@ if __name__ == '__main__':
 
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
-    api_key = "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"
+    api_key = ""
     chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
                                       app_state, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
