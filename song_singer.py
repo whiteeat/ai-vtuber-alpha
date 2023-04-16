@@ -17,27 +17,28 @@ class SongList:
         self.vox_files: list = []
         self.bgm_files: list = []
         self.song_dicts: list = []  # 本地音乐字典列表：id name vox bgm
-        self.load_song_files()
+        self.load_song_text()
         self.cur_song_index = -1
 
-    def load_song_files(self):
-        file_path = self.song_dir
-        for filename in os.listdir(file_path):
-            if filename.endswith('.wav') or filename.endswith('.mp3'):
-                if filename[:-4].endswith('Vox'):
-                    self.names.append(filename[:-7])
-                    filename = file_path + filename
-                    self.vox_files.append(filename)
-                if filename[:-4].endswith('Bgm'):
-                    filename = file_path + filename
-                    self.bgm_files.append(filename)
-        if len(self.vox_files) == len(self.bgm_files):
-            for song_index in range(len(self.vox_files)):
-                song_id = song_index + 1
-                self.song_dicts.append({'id': song_id,
-                                        'name': self.names[song_index],
-                                        'vox': self.vox_files[song_index],
-                                        'bgm': self.bgm_files[song_index]})
+    def load_song_text(self):
+        try:
+            file_path = self.song_dir
+            with open('songs.txt', 'rb') as f:
+                lines = [line.strip() for line in f.readlines()]
+            for line in lines:
+                song_info = line.decode().strip().split(",")
+                song = {
+                    'id': song_info[0],
+                    'name': song_info[1],
+                    'abbr': song_info[2],
+                    'artist': song_info[3],
+                    'editor': song_info[4],
+                    'vox': file_path + song_info[1] + "Vox.wav",
+                    'bgm': file_path + song_info[1] + "Bgm.wav"
+                }
+                self.song_dicts.append(song)
+        except Exception as e:
+            print(f"load_song_text报错:{e}")
 
     def search_song(self, query: str = None):
         try:
@@ -45,13 +46,13 @@ class SongList:
                 print("请输入：‘点歌X’(如：点歌1/点歌Tear)")
                 return None
             else:
-                if self.vox_files and self.bgm_files and self.song_dicts:
+                if self.song_dicts:
                     for song_dict in self.song_dicts:
-                        if query == str(song_dict['id']):
-                            self.cur_song_index = song_dict['id'] - 1
+                        if query == song_dict['id']:
+                            self.cur_song_index = int(song_dict['id']) - 1
                             return song_dict
                         elif query in song_dict['vox'] and query in song_dict['bgm']:
-                            self.cur_song_index = song_dict['id'] - 1
+                            self.cur_song_index = int(song_dict['id']) - 1
                             return song_dict
                     else:
                         self.cur_song_index = -1
@@ -206,7 +207,7 @@ class PureMusic:
         # 获取当前目录下的所有音频文件
         file_path = self.music_dir
         for filename in os.listdir(file_path):
-            if filename.endswith('Msc.wav') or filename.endswith('Msc.mp3'):
+            if filename.endswith('Msc.mp3') or filename.endswith('Msc.wav'):
                 filename = file_path + filename
                 self.music_files.append(filename)
 
@@ -251,7 +252,7 @@ class PureMusic:
 class Display:
     def __init__(self, song_list: SongList):
         self.song_list = song_list
-        self.screen_width = 600
+        self.screen_width = 620
         self.screen_height = 720
         pygame.init()
         self.clock = pygame.time.Clock()
@@ -269,30 +270,32 @@ class Display:
             self.screen.blit(text, text_rect)
         else:
             color = (0, 255, 255)
-            current_song = self.song_list.vox_files[cur_show_index][6:-7]
+            current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
+                           self.song_list.song_dicts[cur_show_index]['artist'] + ' ' + \
+                           self.song_list.song_dicts[cur_show_index]['editor']
             text = self.title_font.render(f"★" + current_song + f"★", True, color)
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
 
     def draw_vox_file_list(self):
         y = 50
-        for i in range(len(self.song_list.vox_files)):
+        for i in range(len(self.song_list.song_dicts)):
             if i == self.song_list.cur_song_index:
                 color = (0, 255, 127)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(f'{i + 1}.' + self.song_list.vox_files[i][6:-7], True, color)
+            text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['name'], True, color)
             self.screen.blit(text, (10, y))
             y += 25
 
     def draw_bgm_file_list(self):
         y = 50
-        for i in range(len(self.song_list.bgm_files)):
+        for i in range(len(self.song_list.song_dicts)):
             if i == self.song_list.cur_song_index:
                 color = (127, 255, 0)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(self.song_list.bgm_files[i][6:-7], True, color)
+            text = self.font.render(self.song_list.song_dicts[i]['name'], True, color)
             self.screen.blit(text, (self.screen_width / 2, y))
             y += 25
 
@@ -457,6 +460,7 @@ class SongMixer:
                 pygame.mixer.quit()
                 pygame.quit()
                 break
+
 
 class SongSingerProcess(multiprocessing.Process):
     def __init__(self, sing_queue, cmd_queue, event_init):
