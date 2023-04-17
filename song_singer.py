@@ -118,30 +118,26 @@ class SongPlayer:
                 self.on_play()
 
             vox_wave = wave.open(self.song_dict['vox'], 'rb')
+            bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
             vox_stream = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
                                        channels=vox_wave.getnchannels(),
                                        rate=vox_wave.getframerate(),
                                        output=True,  # 测试时耳机播
                                        output_device_index=self.virtual_audio_output_device_index)
-            bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
             bgm_stream = self.pau.open(format=self.pau.get_format_from_width(bgm_wave.getsampwidth()),
                                        channels=bgm_wave.getnchannels(),
                                        rate=bgm_wave.getframerate(),
                                        output=True)
-
             while self.playing:
                 if not self.paused:
                     vox_data = vox_wave.readframes(self.CHUNK)
-
+                    bgm_data = bgm_wave.readframes(self.CHUNK)
                     if len(vox_data) != 0:
                         vox_data = self.change_volume(vox_data, self.vox_volume)
                         vox_stream.write(vox_data)
-                    bgm_data = bgm_wave.readframes(self.CHUNK)
-
                     if len(bgm_data) != 0:
                         bgm_data = self.change_volume(bgm_data, self.bgm_volume)
                         bgm_stream.write(bgm_data)
-
                     if len(vox_data) == 0 and len(bgm_data) == 0:
                         break
                 else:
@@ -326,6 +322,7 @@ class SongMixer:
         self.pure_music_thread = None
         self.display = Display(self.song_list)
         self.display_thread = None
+        self.is_thd_started = False
 
     def run_threads(self):
         evt_thd_trigger.set()  # True
@@ -361,6 +358,7 @@ class SongMixer:
                             self.song_plr.stop()
 
                         success = self.song_plr.play(query)
+                        self.is_thd_started = success
 
                 elif command.startswith("666切歌"):
                     if self.song_plr.playing:
@@ -376,7 +374,8 @@ class SongMixer:
                 elif "666继续" == command:
                     self.song_plr.resume()
                 elif "666退出" == command:
-                    self.song_plr.close()
+                    if self.is_thd_started:
+                        self.song_plr.close()
                     evt_thd_trigger.clear()  # False
                     self.pure_music_thread.join()
                     self.display_thread.join()
@@ -419,6 +418,7 @@ class SongMixer:
                             self.song_plr.stop()
 
                         success = self.song_plr.play(query)
+                        self.is_thd_started = success
 
                     elif command.startswith("切歌"):
                         if self.song_plr.playing:
@@ -434,7 +434,8 @@ class SongMixer:
                     elif "继续" == command:
                         self.song_plr.resume()
                     elif "退出" == command:
-                        self.song_plr.close()
+                        if self.is_thd_started:
+                            self.song_plr.close()
                         evt_thd_trigger.clear()  # False
                         self.pure_music_thread.join()
                         self.display_thread.join()
