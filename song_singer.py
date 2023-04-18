@@ -17,27 +17,28 @@ class SongList:
         self.vox_files: list = []
         self.bgm_files: list = []
         self.song_dicts: list = []  # 本地音乐字典列表：id name vox bgm
-        self.load_song_files()
+        self.load_song_text()
         self.cur_song_index = -1
 
-    def load_song_files(self):
-        file_path = self.song_dir
-        for filename in os.listdir(file_path):
-            if filename.endswith('.wav') or filename.endswith('.mp3'):
-                if filename[:-4].endswith('Vox'):
-                    self.names.append(filename[:-7])
-                    filename = file_path + filename
-                    self.vox_files.append(filename)
-                if filename[:-4].endswith('Bgm'):
-                    filename = file_path + filename
-                    self.bgm_files.append(filename)
-        if len(self.vox_files) == len(self.bgm_files):
-            for song_index in range(len(self.vox_files)):
-                song_id = song_index + 1
-                self.song_dicts.append({'id': song_id,
-                                        'name': self.names[song_index],
-                                        'vox': self.vox_files[song_index],
-                                        'bgm': self.bgm_files[song_index]})
+    def load_song_text(self):
+        try:
+            file_path = self.song_dir
+            with open('songs.txt', 'rb') as f:
+                lines = [line.strip() for line in f.readlines()]
+            for line in lines:
+                song_info = line.decode().strip().split(",")
+                song = {
+                    'id': song_info[0],
+                    'name': song_info[1],
+                    'abbr': song_info[2],
+                    'artist': song_info[3],
+                    'editor': song_info[4],
+                    'vox': file_path + song_info[1] + "Vox.wav",
+                    'bgm': file_path + song_info[1] + "Bgm.wav"
+                }
+                self.song_dicts.append(song)
+        except Exception as e:
+            print(f"load_song_text报错:{e}")
 
     def search_song(self, query: str = None):
         try:
@@ -45,13 +46,13 @@ class SongList:
                 print("请输入：‘点歌X’(如：点歌1/点歌Tear)")
                 return None
             else:
-                if self.vox_files and self.bgm_files and self.song_dicts:
+                if self.song_dicts:
                     for song_dict in self.song_dicts:
-                        if query == str(song_dict['id']):
-                            self.cur_song_index = song_dict['id'] - 1
+                        if query == song_dict['id']:
+                            self.cur_song_index = int(song_dict['id']) - 1
                             return song_dict
                         elif query in song_dict['vox'] and query in song_dict['bgm']:
-                            self.cur_song_index = song_dict['id'] - 1
+                            self.cur_song_index = int(song_dict['id']) - 1
                             return song_dict
                     else:
                         self.cur_song_index = -1
@@ -117,30 +118,26 @@ class SongPlayer:
                 self.on_play()
 
             vox_wave = wave.open(self.song_dict['vox'], 'rb')
+            bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
             vox_stream = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
                                        channels=vox_wave.getnchannels(),
                                        rate=vox_wave.getframerate(),
                                        output=True,  # 测试时耳机播
                                        output_device_index=self.virtual_audio_output_device_index)
-            bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
             bgm_stream = self.pau.open(format=self.pau.get_format_from_width(bgm_wave.getsampwidth()),
                                        channels=bgm_wave.getnchannels(),
                                        rate=bgm_wave.getframerate(),
                                        output=True)
-
             while self.playing:
                 if not self.paused:
                     vox_data = vox_wave.readframes(self.CHUNK)
-
+                    bgm_data = bgm_wave.readframes(self.CHUNK)
                     if len(vox_data) != 0:
                         vox_data = self.change_volume(vox_data, self.vox_volume)
                         vox_stream.write(vox_data)
-                    bgm_data = bgm_wave.readframes(self.CHUNK)
-
                     if len(bgm_data) != 0:
                         bgm_data = self.change_volume(bgm_data, self.bgm_volume)
                         bgm_stream.write(bgm_data)
-
                     if len(vox_data) == 0 and len(bgm_data) == 0:
                         break
                 else:
@@ -206,7 +203,7 @@ class PureMusic:
         # 获取当前目录下的所有音频文件
         file_path = self.music_dir
         for filename in os.listdir(file_path):
-            if filename.endswith('Msc.wav') or filename.endswith('Msc.mp3'):
+            if filename.endswith('Msc.mp3') or filename.endswith('Msc.wav'):
                 filename = file_path + filename
                 self.music_files.append(filename)
 
@@ -251,7 +248,7 @@ class PureMusic:
 class Display:
     def __init__(self, song_list: SongList):
         self.song_list = song_list
-        self.screen_width = 600
+        self.screen_width = 620
         self.screen_height = 720
         pygame.init()
         self.clock = pygame.time.Clock()
@@ -269,30 +266,32 @@ class Display:
             self.screen.blit(text, text_rect)
         else:
             color = (0, 255, 255)
-            current_song = self.song_list.vox_files[cur_show_index][6:-7]
+            current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
+                           self.song_list.song_dicts[cur_show_index]['artist'] + ' ' + \
+                           self.song_list.song_dicts[cur_show_index]['editor']
             text = self.title_font.render(f"★" + current_song + f"★", True, color)
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
 
     def draw_vox_file_list(self):
         y = 50
-        for i in range(len(self.song_list.vox_files)):
+        for i in range(len(self.song_list.song_dicts)):
             if i == self.song_list.cur_song_index:
                 color = (0, 255, 127)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(f'{i + 1}.' + self.song_list.vox_files[i][6:-7], True, color)
+            text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['name'], True, color)
             self.screen.blit(text, (10, y))
             y += 25
 
     def draw_bgm_file_list(self):
         y = 50
-        for i in range(len(self.song_list.bgm_files)):
+        for i in range(len(self.song_list.song_dicts)):
             if i == self.song_list.cur_song_index:
                 color = (127, 255, 0)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(self.song_list.bgm_files[i][6:-7], True, color)
+            text = self.font.render(self.song_list.song_dicts[i]['name'], True, color)
             self.screen.blit(text, (self.screen_width / 2, y))
             y += 25
 
@@ -323,6 +322,7 @@ class SongMixer:
         self.pure_music_thread = None
         self.display = Display(self.song_list)
         self.display_thread = None
+        self.is_thd_started = False
 
     def run_threads(self):
         evt_thd_trigger.set()  # True
@@ -358,6 +358,7 @@ class SongMixer:
                             self.song_plr.stop()
 
                         success = self.song_plr.play(query)
+                        self.is_thd_started = success
 
                 elif command.startswith("666切歌"):
                     if self.song_plr.playing:
@@ -373,7 +374,8 @@ class SongMixer:
                 elif "666继续" == command:
                     self.song_plr.resume()
                 elif "666退出" == command:
-                    self.song_plr.close()
+                    if self.is_thd_started:
+                        self.song_plr.close()
                     evt_thd_trigger.clear()  # False
                     self.pure_music_thread.join()
                     self.display_thread.join()
@@ -416,6 +418,7 @@ class SongMixer:
                             self.song_plr.stop()
 
                         success = self.song_plr.play(query)
+                        self.is_thd_started = success
 
                     elif command.startswith("切歌"):
                         if self.song_plr.playing:
@@ -431,7 +434,8 @@ class SongMixer:
                     elif "继续" == command:
                         self.song_plr.resume()
                     elif "退出" == command:
-                        self.song_plr.close()
+                        if self.is_thd_started:
+                            self.song_plr.close()
                         evt_thd_trigger.clear()  # False
                         self.pure_music_thread.join()
                         self.display_thread.join()
@@ -457,6 +461,7 @@ class SongMixer:
                 pygame.mixer.quit()
                 pygame.quit()
                 break
+
 
 class SongSingerProcess(multiprocessing.Process):
     def __init__(self, sing_queue, cmd_queue, event_init):

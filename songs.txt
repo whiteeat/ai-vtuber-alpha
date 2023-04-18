@@ -1,0 +1,10 @@
+1,眼含泪水Tears,Tears,中岛美嘉,CYMIC
+2,阴雨连绵EndlessRain,EndlessRain,X,CYMIC
+3,帝皇テイオーテイテイオー,帝皇テイオー,Machico,-
+4,感谢神明ありがとう神様,ありがとう神様,Machico,-
+5,出道MakeDebut,MakeDebut,Machico,-
+6,WinningTheSoul,WinningTheSoul,Machico,-
+7,恋爱是德比恋はダービー,恋はダービー,Machico,-
+8,梦翔ユメヲカケル,ユメヲカケル,Machico,-
+9,你的爱马君の愛馬が,君の愛馬が,Machico,-
+10,闪耀グロウアップ,グロウアップ,,Machico,-
