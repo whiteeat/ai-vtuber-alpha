@@ -99,8 +99,7 @@ class VITSProcess(multiprocessing.Process):
                 n_speakers=self.hps_ms.data.n_speakers,
                 **self.hps_ms.model).to(self.device)
             _ = self.net_g_ms.eval()
-            model, optimizer, learning_rate, epochs = utils.load_checkpoint(r'vits/model/G_953000.pth', self.net_g_ms,
-                                                                            None)
+            model, optimizer, learning_rate, epochs = utils.load_checkpoint(r'vits/model/G_953000.pth', self.net_g_ms, None)
 
         print("Loading Weights finished.")
 
@@ -378,18 +377,13 @@ class ChatGPTProcess(multiprocessing.Process):
                         channel = 'sing'
 
                         if song_dict is not None:
-                            system_msg = SystemMessageManager.get_sing_accept_sm(user_name)
-                        else:
-                            system_msg = SystemMessageManager.get_sing_refuse_sm(user_name)
-
-                        chatbot.reset(convo_id=channel, system_prompt=system_msg)
-
-                        if song_dict is not None:
                             song_name = song_dict['name']
                         else:
-                            song_name = song_alias
+                            song_name = None
 
-                        request_a_song_msg = f"请你唱一首“{song_name}”！"
+                        system_msg = SystemMessageManager.get_presing_sm(user_name, song_name)
+
+                        chatbot.reset(convo_id=channel, system_prompt=system_msg)
 
                         cmd_sing = None
                         if song_dict is not None:
@@ -398,7 +392,7 @@ class ChatGPTProcess(multiprocessing.Process):
                         try:
                             new_sentence = ""
                             vits_task = None
-                            for data in chatbot.ask(prompt=request_a_song_msg, convo_id=channel):
+                            for data in chatbot.ask(prompt="", convo_id=channel):
                                 print(data, end="", flush=True)
 
                                 if vits_task is not None:
@@ -674,8 +668,8 @@ class LiveCommentProcess(multiprocessing.Process):
             if recv_text == None:
                 recv_text = b'\x00\x00\x00\x1a\x00\x10\x00\x01\x00\x00\x00\x08\x00\x00\x00\x01{"code":0}'
 
-            if self.app_state.value == AppState.CHAT:
-                self.processDM(recv_text)
+            # if self.app_state.value == AppState.CHAT:
+            self.processDM(recv_text)
 
             if self.event_stop.is_set():
                 print("recvDM ends.")
@@ -709,18 +703,20 @@ class LiveCommentProcess(multiprocessing.Process):
         if (op == 5):
             try:
                 jd = json.loads(data[16:].decode('utf-8', errors='ignore'))
-                if (jd['cmd'] == 'DANMU_MSG'):
-                    user_name = jd['info'][2][1]
-                    msg = jd['info'][1]
-                    print('[DANMU] ', user_name, ': ', msg)
 
-                    channel = 'chat'
-                    if self.is_response_enabled():
-                        if self.chat_queue.full():
-                            _ = self.chat_queue.get()
+                if self.app_state.value == AppState.CHAT:
+                    if (jd['cmd'] == 'DANMU_MSG'):
+                        user_name = jd['info'][2][1]
+                        msg = jd['info'][1]
+                        print('[DANMU] ', user_name, ': ', msg)
 
-                        task = ChatTask(user_name, msg, channel)
-                        self.chat_queue.put(task)
+                        channel = 'chat'
+                        if self.is_response_enabled():
+                            if self.chat_queue.full():
+                                _ = self.chat_queue.get()
+
+                            task = ChatTask(user_name, msg, channel)
+                            self.chat_queue.put(task)
 
                 elif (jd['cmd'] == 'SEND_GIFT'):
                     print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
@@ -758,23 +754,24 @@ class LiveCommentProcess(multiprocessing.Process):
                 elif (jd['cmd'] == 'PREPARING'):
                     print('[Notice] LIVE Ended!')
                 elif (jd['cmd'] == 'INTERACT_WORD'):
-                    user_name = jd['data']['uname']
-                    msg_type = jd['data']['msg_type']
-                    channel = 'default'
-                    # 进场
-                    if msg_type == 1:
-                        # msg = f"（{user_name}进入了你的直播间。）"
-                        # msg = f"主播好！我是{user_name}，来你的直播间了！"
-                        msg = f"主播好！我是{user_name}，我来了！"
-                        print(f"[INTERACT_WORD] {msg}")
+                    if self.app_state.value == AppState.CHAT:
+                        user_name = jd['data']['uname']
+                        msg_type = jd['data']['msg_type']
+                        channel = 'default'
+                        # 进场
+                        if msg_type == 1:
+                            # msg = f"（{user_name}进入了你的直播间。）"
+                            # msg = f"主播好！我是{user_name}，来你的直播间了！"
+                            msg = f"主播好！我是{user_name}，我来了！"
+                            print(f"[INTERACT_WORD] {msg}")
 
-                        if self.is_response_enabled():
-                            task = ChatTask(user_name, msg, channel)
+                            if self.is_response_enabled():
+                                task = ChatTask(user_name, msg, channel)
 
-                            if self.greeting_queue.full():
-                                _ = self.greeting_queue.get()
+                                if self.greeting_queue.full():
+                                    _ = self.greeting_queue.get()
 
-                            self.greeting_queue.put(task)
+                                self.greeting_queue.put(task)
 
                     # 关注
                     elif msg_type == 2:
@@ -822,17 +819,25 @@ class LiveCommentProcess(multiprocessing.Process):
 preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你说话简练。"
 
 class SystemMessageManager:
-    # pre_sing_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，名叫“{t_song_name}”，你{t_if_know}唱，并且同意唱，这时你对这名观众说：（续写内容不要带""）"
+    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（续写内容不要带""）"
 
-    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}“，正在与你互动。如果这位粉丝请你唱歌，你会答应唱歌，然后去后台准备了。注意，不要生成带（）的内容！不要有第三人称的描述！不要生成自己具体做了什么动作的内容！"
+    # 可以随机推荐歌曲，有个清单
+    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，你不会唱，这时你对这名观众说：（续写内容不要带""）"
 
-    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}”，正在与你互动。这位粉丝要求你唱的歌你并不会唱，所以拒绝唱歌。"
+    # sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}“，正在与你互动。如果这位粉丝请你唱歌，你会答应唱歌，然后去后台准备了。注意，不要生成带（）的内容！不要有第三人称的描述！不要生成自己具体做了什么动作的内容！"
 
-    def get_sing_accept_sm(user_name):
-        return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name)
+    # sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}”，正在与你互动。这位粉丝要求你唱的歌你并不会唱，所以拒绝唱歌。"
 
-    def get_sing_refuse_sm(user_name):
-        return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
+    # def get_sing_accept_sm(user_name):
+    #     return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name)
+
+    # def get_sing_refuse_sm(user_name):
+    #     return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
+    def get_presing_sm(user_name, song_name=None):
+        if song_name is not None:
+            return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name, t_song_name=song_name)
+        else:
+            return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
 
 if __name__ == '__main__':
     app_state = multiprocessing.Value('i', AppState.CHAT)
@@ -872,7 +877,8 @@ if __name__ == '__main__':
     event_is_speaking = multiprocessing.Event()
 
     # Or cpu
-    device_str = 'cuda'
+    # device_str = 'cuda'
+    device_str = 'cpu'
     vits_process = VITSProcess(
         device_str,
         vits_task_queue,
