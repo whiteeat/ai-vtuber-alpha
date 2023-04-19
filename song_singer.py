@@ -178,8 +178,7 @@ class SongPlayer:
         self.song_list.cur_song_index = -1
 
         # https://www.codecademy.com/resources/docs/python/threading/is-alive
-        if (self.stream_thread is not None and
-            self.stream_thread.is_alive()):
+        if self.stream_thread is not None and self.stream_thread.is_alive():
             self.stream_thread.join()
 
     def pause(self):
