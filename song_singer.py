@@ -176,7 +176,11 @@ class SongPlayer:
     def stop(self):
         self.playing = False
         self.song_list.cur_song_index = -1
-        self.stream_thread.join()
+
+        # https://www.codecademy.com/resources/docs/python/threading/is-alive
+        if (self.stream_thread is not None and
+            self.stream_thread.is_alive()):
+            self.stream_thread.join()
 
     def pause(self):
         self.paused = True

@@ -325,7 +325,9 @@ class ChatGPTProcess(multiprocessing.Process):
         # Use short preset text for event
         chatbot.reset(convo_id='default', system_prompt=preset_text_short)
 
-        channels = {'default', 'chat'}
+        channels = {'default', 'chat', 'presing'}
+
+        curr_song_dict = None
 
         self.event_initialized.set()
 
@@ -374,14 +376,20 @@ class ChatGPTProcess(multiprocessing.Process):
 
                         user_name = task.user_name
                         song_dict = song_list.search_song(song_alias)
-                        channel = 'sing'
+                        channel = 'presing'
+
+                        curr_song_dict = song_dict
 
                         if song_dict is not None:
                             song_name = song_dict['name']
+                            editor_name = song_dict['editor']
                         else:
                             song_name = None
 
-                        system_msg = SystemMessageManager.get_presing_sm(user_name, song_name)
+                        if editor_name == '-':
+                            editor_name = None
+
+                        system_msg = SystemMessageManager.get_presing_sm(user_name, song_name, editor_name)
 
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
 
@@ -424,16 +432,18 @@ class ChatGPTProcess(multiprocessing.Process):
                                 self.vits_task_queue.put(vits_task)
 
                         except Exception as e:
-                            if cmd_sing is not None:
-                                response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_name}。"
+                            if song_dict is not None:
+                                if editor_name is not None:
+                                    response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_name}，感谢{editor_name}大佬教我唱这首歌。"
+                                else:
+                                    response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_name}。"
                             else:
                                 response_to_song_request_msg = f"对不起，{user_name}同学，我不会唱你点的这首歌。"
                             
                             vits_task = VITSTask(response_to_song_request_msg, cmd_sing=cmd_sing)
                             self.vits_task_queue.put(vits_task)
 
-                        # request_a_song_msg = f"{task.user_name}点歌{song_name}"
-                        if cmd_sing is not None:
+                        if song_dict is not None:
                             self.app_state.value = AppState.PRESING
                         continue
 
@@ -595,6 +605,50 @@ class ChatGPTProcess(multiprocessing.Process):
                     cmd_msg = self.cmd_queue.get()
 
                     if cmd_msg == "#唱歌结束":
+
+                        song_name = curr_song_dict['name']
+                        editor_name = curr_song_dict['editor']
+                        channel = "postsing"
+
+                        if editor_name == '-':
+                            editor_name = None
+
+                        system_msg = SystemMessageManager.get_finish_template(song_name, editor_name)
+                        chatbot.reset(convo_id=channel, system_prompt=system_msg)
+                        
+                        try:
+                            new_sentence = ""
+                            for data in chatbot.ask(prompt="", convo_id=channel):
+                                print(data, end="", flush=True)
+
+                                should_split = False
+                                new_sentence += data
+                                if len(new_sentence) >= min_sentence_length:
+                                    if new_sentence[-1] in punctuations_to_split_text:
+                                        should_split = True
+                                    elif len(new_sentence) >= sentence_longer_threshold:
+                                        if new_sentence[-1] in punctuations_to_split_text_longer:
+                                            should_split = True
+
+                                    if should_split:
+                                        vits_task = VITSTask(new_sentence.strip())
+                                        self.vits_task_queue.put(vits_task)
+                                        new_sentence = ""
+
+                            if len(new_sentence) > 0:
+                                if self.is_vits_enabled():
+                                    vits_task = VITSTask(new_sentence.strip())
+                                    self.vits_task_queue.put(vits_task)
+                        except Exception as e:
+                            print(e)
+                            if editor_name is not None:
+                                post_sing_line = f"感谢各位朋友欣赏这首{song_name}，再次感谢{editor_name}大佬，是他教我唱得首歌！"
+                            else:
+                                post_sing_line = f"感谢各位朋友欣赏这首{song_name}！"
+
+                            vits_task = VITSTask(post_sing_line)
+                            self.vits_task_queue.put(vits_task)
+
                         self.app_state.value = AppState.CHAT
                     elif cmd_msg is None:
                         # Poison pill means shutdown
@@ -819,25 +873,33 @@ class LiveCommentProcess(multiprocessing.Process):
 preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你说话简练。"
 
 class SystemMessageManager:
-    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（续写内容不要带""）"
+    sing_accept_thank_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，这首歌是“{t_editor_name}”大佬教你唱的，你同意唱并且要答谢教你的大佬，这时你对这名观众说：（续写内容不要带“”）"
+
+    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（续写内容不要带“”）"
 
     # 可以随机推荐歌曲，有个清单
-    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名观众，叫{t_user_name}，点了一个首歌，你不会唱，这时你对这名观众说：（续写内容不要带""）"
+    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。台下一名观众，叫“{t_user_name}“，点了一个首歌，你不会唱，这时你对这名观众说：（续写内容不要带“”）"
 
-    # sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}“，正在与你互动。如果这位粉丝请你唱歌，你会答应唱歌，然后去后台准备了。注意，不要生成带（）的内容！不要有第三人称的描述！不要生成自己具体做了什么动作的内容！"
+    sing_finish_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”，是“{t_editor_name}”大佬教你唱的。这时，你要感谢台下观众的聆听，并再次感谢教你唱这首歌的大佬，你说：（续写内容不要用“”括起来！）"
 
-    # sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，”哈吉米“不能出现在句首。台下一名粉丝，名字叫“{t_user_name}”，正在与你互动。这位粉丝要求你唱的歌你并不会唱，所以拒绝唱歌。"
+    sing_finish_no_editor_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你说完一句话后偶尔说“哈吉米”，“哈吉米”不能出现在句首。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”。这时，你要感谢台下观众的聆听，你说：（续写内容不要用“”括起来！）"
 
-    # def get_sing_accept_sm(user_name):
-    #     return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name)
-
-    # def get_sing_refuse_sm(user_name):
-    #     return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
-    def get_presing_sm(user_name, song_name=None):
+    def get_presing_sm(user_name, song_name=None, editor_name=None):
         if song_name is not None:
-            return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name, t_song_name=song_name)
+            if editor_name is not None:
+                return SystemMessageManager.sing_accept_thank_tempate.format(t_user_name=user_name, 
+                                                                       t_song_name=song_name,
+                                                                       t_editor_name=editor_name)
+            else:
+                return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name, t_song_name=song_name)
         else:
             return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
+        
+    def get_finish_template(song_name, editor_name=None):
+        if editor_name is not None:
+            return SystemMessageManager.sing_finish_template.format(t_song_name=song_name, t_editor_name=editor_name)
+        else:
+            return SystemMessageManager.sing_finish_no_editor_template.format(t_song_name=song_name)
 
 if __name__ == '__main__':
     app_state = multiprocessing.Value('i', AppState.CHAT)
@@ -961,7 +1023,7 @@ if __name__ == '__main__':
                 chat_queue.put(chat_task)
         elif app_state.value != AppState.CHAT:
             if user_input == "#唱歌结束":
-                cmd_queue.put("#唱歌结束")
+                # cmd_queue.put("#唱歌结束")
                 sing_queue.put("666切歌")
 
     event_live_comment_process_stop.set()

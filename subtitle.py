@@ -67,6 +67,7 @@ class SubtitleBar():
             subtitle = self.task_queue.get(block=False)
             if subtitle is None:
                 self.window.quit()
+                return
             else:
                 process = multiprocessing.current_process()
                 proc_name = process.name
@@ -96,6 +97,7 @@ class SubtitleBarProcess(multiprocessing.Process):
         print(f"{proc_name} is working...")
 
         self.bar = SubtitleBar(self.task_queue)
+        print(f"{proc_name} exits")
 
 if __name__ == '__main__':
     event_subtitle_bar_process_initialized = multiprocessing.Event()
