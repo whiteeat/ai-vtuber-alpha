@@ -6,6 +6,9 @@ import pygame
 import wave
 import os
 import time
+import websockets
+import json
+import asyncio
 
 evt_thd_trigger = threading.Event()
 
@@ -258,13 +261,15 @@ class Display:
         self.font = pygame.font.SysFont('SimHei', 20)
         self.title_font = pygame.font.SysFont('幼圆', 22)
         self.screen = None
+        self.pos_y = self.screen_height / 2
 
     def draw_cur_song_name(self):
         y = 20
+        pygame.draw.rect(self.screen, (0, 127, 255), (0, 0, 620, 40), width=0)
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌Tea)", True, color)
+            text = self.font.render(f"弹幕'点歌X'(如:点歌8/点歌Win)", True, color)
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
         else:
@@ -276,16 +281,17 @@ class Display:
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
 
-    def draw_vox_file_list(self):
-        y = 50
+    def draw_vox_file_list(self, _y):
         for i in range(len(self.song_list.song_dicts)):
             if i == self.song_list.cur_song_index:
                 color = (0, 255, 127)
             else:
                 color = (255, 255, 255)
             text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['name'], True, color)
-            self.screen.blit(text, (10, y))
-            y += 25
+            ztx, zty, ztw, zth = text.get_rect()
+            pos_rect = pygame.Rect(10, _y, ztw, zth)
+            self.screen.blit(text, (pos_rect.x, pos_rect.y))
+            _y += 25
 
     def draw_bgm_file_list(self):
         y = 50
@@ -301,20 +307,188 @@ class Display:
     def display_list(self):
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("优俊歌者")
+        y = self.pos_y
         while evt_thd_trigger.isSet():  # T/F
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     evt_thd_trigger.clear()  # False
             try:
+                y -= 2
+                if y < len(self.song_list.song_dicts) * -25:
+                    y = self.pos_y
                 self.screen.fill(color=(0, 127, 255))
-                self.draw_cur_song_name()
-                self.draw_vox_file_list()
+                self.draw_vox_file_list(y)
                 self.draw_bgm_file_list()
+                self.draw_cur_song_name()
                 pygame.display.update()
                 self.clock.tick(30)
             except Exception as e:
                 print(f"display_list报错:{e}")
                 evt_thd_trigger.clear()  # False
+
+
+class EmojiPlayer:
+    def __init__(self, _song_list: SongList):
+        self.song_list = _song_list
+
+    def start_thread_loop(self, loop):
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    async def request_token(self, websocket, plugin_name, plugin_developer, plugin_icon=None):
+        request = {
+            "apiName": "VTubeStudioPublicAPI",
+            "apiVersion": "1.0",
+            "requestID": "TokenRequestID",
+            "messageType": "AuthenticationTokenRequest",
+            "data": {
+                "pluginName": plugin_name,
+                "pluginDeveloper": plugin_developer,
+                "pluginIcon": plugin_icon
+            }
+        }
+
+        await websocket.send(json.dumps(request))
+        response = await websocket.recv()
+        json_response = json.loads(response)
+
+        if json_response["messageType"] == "AuthenticationTokenResponse":
+            return json_response["data"]["authenticationToken"]
+        else:
+            return None
+
+    async def authenticate(self, websocket, plugin_name, plugin_developer, authentication_token):
+        request = {
+            "apiName": "VTubeStudioPublicAPI",
+            "apiVersion": "1.0",
+            "requestID": "AuthenticationRequestID",
+            "messageType": "AuthenticationRequest",
+            "data": {
+                "pluginName": plugin_name,
+                "pluginDeveloper": plugin_developer,
+                "authenticationToken": authentication_token
+            }
+        }
+
+        await websocket.send(json.dumps(request))
+        response = await websocket.recv()
+        json_response = json.loads(response)
+
+        if json_response["messageType"] == "AuthenticationResponse":
+            return json_response["data"]["authenticated"]
+        else:
+            return False
+
+    async def request_trigger_hotkey(self, websocket, hotkey_id):
+        request = {
+            "apiName": "VTubeStudioPublicAPI",
+            "apiVersion": "1.0",
+            "requestID": "SomeID",
+            "messageType": "HotkeyTriggerRequest",
+            "data": {
+                "hotkeyID": hotkey_id,
+            }
+        }
+
+        await websocket.send(json.dumps(request))
+        response = await websocket.recv()
+        json_response = json.loads(response)
+
+        if json_response["messageType"] == "HotkeyTriggerResponse":
+            return json_response["data"]["hotkeyID"]
+        else:
+            return None
+
+    async def play_emoji(self):
+        uri = "ws://localhost:8001"
+        async with websockets.connect(uri) as websocket:
+            plugin_name = "My Cool Plugin"
+            plugin_developer = "My Name"
+            authentication_token = await self.request_token(websocket, plugin_name, plugin_developer)
+
+            if authentication_token:
+                print(f"Token: {authentication_token}")
+                is_authenticated = await self.authenticate(websocket, plugin_name, plugin_developer,
+                                                           authentication_token)
+                print(f"Authenticated: {is_authenticated}")
+            else:
+                print("Token request failed")
+
+            is_once = False
+            is_finished = True
+            while True:
+                try:
+                    if websocket is not None:
+                        if -1 == self.song_list.cur_song_index:
+                            is_once = True
+                            hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                            triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                            await asyncio.sleep(2)
+                            hotkey_angry = 'b4e311930c02483094a315f78d593b9e'
+                            triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_angry)
+                            await asyncio.sleep(0.1)
+                            if is_finished:
+                                is_finished = False
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_happy = '8bf6ffd23d8a439490d8166fc0025d95'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_happy)
+                                await asyncio.sleep(5)
+                        else:
+                            is_finished = True
+                            if is_once:
+                                is_once = False
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_roger = '15d08dd5ba4e48349d6417e52fafc746'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_roger)
+                                await asyncio.sleep(1)
+                                hotkey_sparkle = '27af9687b7fd42f8969d1367ccee7c2b'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sparkle)
+                                await asyncio.sleep(1)
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                            if self.song_list.cur_song_index in range(2):
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                await asyncio.sleep(0.1)
+                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                await asyncio.sleep(3)
+                                hotkey_angry = 'b4e311930c02483094a315f78d593b9e'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_angry)
+                                await asyncio.sleep(0.3)
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                await asyncio.sleep(3)
+                            elif self.song_list.cur_song_index in range(2, 5):
+                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                await asyncio.sleep(3)
+                                hotkey_happy = '8bf6ffd23d8a439490d8166fc0025d95'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_happy)
+                                await asyncio.sleep(3)
+                            else:  # 4-12 songs
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                await asyncio.sleep(0.1)
+                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                await asyncio.sleep(3)
+                                hotkey_roger = '15d08dd5ba4e48349d6417e52fafc746'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_roger)
+                                await asyncio.sleep(3)
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                await asyncio.sleep(3)
+                    else:
+                        print("websocket为空！")
+                        break
+                except Exception as e:
+                    print(f"play_emoji报错:{e}")
+                    break
 
 
 class SongMixer:
@@ -325,7 +499,10 @@ class SongMixer:
         self.pure_music_thread = None
         self.display = Display(self.song_list)
         self.display_thread = None
+        self.emoji_player = EmojiPlayer(self.song_list)
+        self.emoji_player_thread = None
         self.is_thd_started = False
+        self.new_loop = asyncio.new_event_loop()
 
     def run_threads(self):
         evt_thd_trigger.set()  # True
@@ -333,6 +510,11 @@ class SongMixer:
         self.pure_music_thread.start()
         self.display_thread = threading.Thread(target=self.display.display_list, daemon=True)
         self.display_thread.start()
+        # new_loop = asyncio.new_event_loop()
+        self.emoji_player_thread = threading.Thread(target=self.emoji_player.start_thread_loop, args=(self.new_loop,),
+                                                    daemon=True)
+        self.emoji_player_thread.start()
+        asyncio.run_coroutine_threadsafe(self.emoji_player.play_emoji(), self.new_loop)
 
     def set_on_play_event(self, func):
         self.song_plr.on_play = func
@@ -348,6 +530,8 @@ class SongMixer:
                     evt_thd_trigger.clear()  # False
                     self.pure_music_thread.join()
                     self.display_thread.join()
+                    self.new_loop.close()
+                    self.emoji_player_thread.join()
                     pygame.mixer.quit()
                     pygame.quit()
             if len(self.song_list.song_dicts) != 0:
@@ -367,7 +551,7 @@ class SongMixer:
                     if self.song_plr.playing:
                         self.song_plr.stop()
                     else:
-                        print("请先'点歌X'(如:点歌3/点歌Tea)")
+                        print("请先'点歌X'(如:点歌8/点歌Win)")
                 elif "666辣条" == command:
                     self.song_plr.set_volume(vox_volume=0.0, bgm_volume=0.8)
                 elif "666歌唱" == command:
@@ -382,6 +566,8 @@ class SongMixer:
                     evt_thd_trigger.clear()  # False
                     self.pure_music_thread.join()
                     self.display_thread.join()
+                    self.new_loop.close()
+                    self.emoji_player_thread.join()
                     pygame.mixer.quit()
                     pygame.quit()
                 else:
@@ -391,6 +577,8 @@ class SongMixer:
                 evt_thd_trigger.clear()  # False
                 self.pure_music_thread.join()
                 self.display_thread.join()
+                self.new_loop.close()
+                self.emoji_player_thread.join()
                 pygame.mixer.quit()
                 pygame.quit()
         except Exception as e:
@@ -399,6 +587,8 @@ class SongMixer:
             evt_thd_trigger.clear()  # False
             self.pure_music_thread.join()
             self.display_thread.join()
+            self.new_loop.close()
+            self.emoji_player_thread.join()
             pygame.mixer.quit()
             pygame.quit()
 
@@ -411,6 +601,8 @@ class SongMixer:
                         evt_thd_trigger.clear()  # False
                         self.pure_music_thread.join()
                         self.display_thread.join()
+                        self.new_loop.close()
+                        self.emoji_player_thread.join()
                         pygame.mixer.quit()
                         pygame.quit()
                 if len(self.song_list.song_dicts) != 0:
@@ -427,7 +619,7 @@ class SongMixer:
                         if self.song_plr.playing:
                             self.song_plr.stop()
                         else:
-                            print("请先'点歌X'(如:点歌3/点歌Tea)")
+                            print("请先'点歌X'(如:点歌8/点歌Win)")
                     elif "辣条" == command:
                         self.song_plr.set_volume(vox_volume=0.0, bgm_volume=0.8)
                     elif "歌唱" == command:
@@ -442,6 +634,8 @@ class SongMixer:
                         evt_thd_trigger.clear()  # False
                         self.pure_music_thread.join()
                         self.display_thread.join()
+                        self.new_loop.close()
+                        self.emoji_player_thread.join()
                         pygame.mixer.quit()
                         pygame.quit()
                         break
@@ -452,6 +646,8 @@ class SongMixer:
                     evt_thd_trigger.clear()  # False
                     self.pure_music_thread.join()
                     self.display_thread.join()
+                    self.new_loop.close()
+                    self.emoji_player_thread.join()
                     pygame.mixer.quit()
                     pygame.quit()
                     break
@@ -461,6 +657,8 @@ class SongMixer:
                 evt_thd_trigger.clear()  # False
                 self.pure_music_thread.join()
                 self.display_thread.join()
+                self.new_loop.close()
+                self.emoji_player_thread.join()
                 pygame.mixer.quit()
                 pygame.quit()
                 break
@@ -493,6 +691,8 @@ class SongSingerProcess(multiprocessing.Process):
                     evt_thd_trigger.clear()  # False
                     song_mixer.pure_music_thread.join()
                     song_mixer.display_thread.join()
+                    song_mixer.new_loop.close()
+                    song_mixer.emoji_player_thread.join()
                     pygame.mixer.quit()
                     pygame.quit()
 
@@ -506,6 +706,8 @@ class SongSingerProcess(multiprocessing.Process):
                 evt_thd_trigger.clear()
                 song_mixer.pure_music_thread.join()
                 song_mixer.display_thread.join()
+                song_mixer.new_loop.close()
+                song_mixer.emoji_player_thread.join()
                 pygame.mixer.quit()
                 pygame.quit()
                 break
@@ -533,6 +735,8 @@ if __name__ == '__main__':
                     evt_thd_trigger.clear()  # False
                     song_mixer.pure_music_thread.join()
                     song_mixer.display_thread.join()
+                    song_mixer.new_loop.close()
+                    song_mixer.emoji_player_thread.join()
                     pygame.mixer.quit()
                     pygame.quit()
             x = ['切歌', '点歌', '点歌嫩叠', '点歌End', '点歌Tear']
