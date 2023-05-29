@@ -1,27 +1,57 @@
-1,眼含泪水Tears,Tears,中岛美嘉,CYMIC
-2,阴雨连绵EndlessRain,EndlessRain,X,CYMIC
-3,哈基米はちみーのうた,はちみのうた,Teio,Leojk
-4,哈基米はちみ京桥版,はちみ,Teio,京桥刹那
-5,帝皇テイオーテイテイオー,帝皇テイオー,Machico,-
-6,感谢神明ありがとう神様,ありがとう神様,Machico,-
-7,出道MakeDebut,MakeDebut,Teio,Leojk
+1,眼含泪水Tears,眼含泪水,中岛美嘉,CYMIC
+2,阴雨连绵EndlessRain,阴雨连绵,X,CYMIC
+3,哈基米はちみーのうた,哈基米,Teio,Leojk
+4,哈基米はちみ京桥版,哈基米,Teio,京桥刹那
+5,帝皇テイオーテイテイオー,帝皇テイオー,Teio,Leojk
+6,感谢神明ありがとう神様,感谢神明,Teio,Leojk
+7,你的爱马 君の愛馬が,君の愛馬が,Teio,Leojk
 8,赢得你心WinningTheSoul,赢得你心,Teio,Leojk
-9,恋爱是德比 恋はダービー,恋はダービー,Teio,Leojk
-10,梦我翱翔ユメヲカケル,ユメヲカケル,Teio,Leojk
-11,你的爱马 君の愛馬が,君の愛馬が,Teio,Leojk
+9,梦我翱翔ユメヲカケル,ユメヲカケル,Teio,Leojk
+10,恋爱是德比 恋はダービー,恋爱是德比,Teio,Leojk
+11,鸣号未来FanfareForFuture!,鸣号未来,Teio,Leojk
 12,闪耀グロウアップ-シャイン,シャイン,Teio,Leojk
 13,愿望的形式 願いのカタチ,願いのカタチ,Teio,Leojk
-14,光透枝梢 木漏れ日のエール,木漏れ日..,Machico,-
-15,EndlessDream!,EndlessDream!,Machico,-
-16,鸣号未来FanfareForFuture!,鸣号未来,Teio,Leojk
-17,FindMyOnlyWay,FindMyOnlyWay,Machico,-
-18,Girls'LegendU,Girls'LegendU,Machico,-
-19,RingRingダイアリー,RingRing,Machico,-
-20,SpecialRecord!,SpecialRecord,Machico,-
+14,光透枝梢 木漏れ日のエール,光透枝梢,Teio,Leojk
+15,无尽梦想EndlessDream!,无尽梦想,Teio,Leojk
+16,女子传奇Girls'LegendU,女子传奇,Teio,Leojk
+17,寻道FindMyOnlyWay,寻道,Teio,Leojk
+18,出道MakeDebut!,出道M.D.,Teio,Leojk
+19,RingRingダイアリー,RingRing,Teio,Leojk
+20,特别记录SpecialRecord!,特别记录,Teio,Leojk
 21,我们梦想家WeAreDreamers!,我们梦想家,Teio,Leojk
-22,奔跑吧赛马娘 走れウマ娘,走れウマ娘,Teio,Leojk
-23,PreciousStarDreamer,珍星梦想家,Teio,Leojk
-24,扑通肿了ぴょいっとはれるや!,扑通肿了!,Teio,Leojk
+22,PreciousStarDreamer,珍星梦想家,Teio,Leojk
+23,奔跑吧赛马娘 走れウマ娘,走れウマ娘,Teio,Leojk
+24,哈利路亚ぴょいっと-はれるや!,哈利路亚,Teio,Leojk
 25,笑顔の宝物BeyondTheFuture!,笑顔の宝物,Teio,Leojk
-26,注视我!GazeOnMe!,注视我!,Teio,Leojk
-27,冬の花 宮本浩次xTeio,冬の花,浩次xTeio,Leojk
+26,注视我GazeOnMe!,注视我!,Teio,Leojk
+27,ミッドナイト-エピローグ,午夜-结语,Teio,Leojk
+28,永恒节拍EverlastingBEATS,永恒节拍,Teio,Leojk
+29,冬の花 冬之花xTeio,冬の花,Teio,Leojk
+30,印我最爱わたしの印は大本命,印章我最爱,Teio,Leojk
+31,反方向的钟xTeio,反方向的钟,Teio,Leojk
+32,无畏xTeio,无畏,Teio,Leojk
+33,正气歌xTeio,正气歌,Teio,Leojk
+34,心如止水xTeio,心如止水,Teio,Leojk
+35,小小花园xTeio,小小花园,Teio,Leojk
+36,伴随着你 君をのせてxTeio,伴随着你,Teio,Leojk
+37,紅葉愛唄GRND.xTeio,紅葉愛唄,Teio,Leojk
+38,極楽浄土GRND.xTeio,極楽浄土,Teio,Leojk
+39,響喜乱舞GRND.xTeio,響喜乱舞,Teio,Leojk
+40,桃源恋歌GRND.xTeio,桃源恋歌,Teio,Leojk
+41,套马杆xTeio,套马杆,Teio,Leojk
+42,多分、風。xTeio,多分、風。,Teio,Leojk
+43,恋愛サーキュレ循环xTeio,恋愛循环,Teio,Leojk
+44,打ち上げ花火xTeio,打上花火,Teio,Leojk
+45,直到世界尽头xTeio,直到世界尽头,Teio,Leojk
+46,OneLastKiss xTeio,OneLastKiss,Teio,Leojk
+47,清明雨上xTeio,清明雨上,Teio,Leojk
+48,达拉崩吧xTeio,达拉崩吧,Teio,Leojk
+49,奢香夫人xTeio,奢香夫人,Teio,Leojk
+50,kIng王者天下S3xTeio,kIng王者,Teio,Leojk
+51,KING xTeio,KING,Teio,Leojk
+52,像笨蛋一样ばかみたいxTeio,像笨蛋一样,Teio,Leojk
+53,团子だんご大家族xTeio,团子大家族,Teio,Leojk
+54,权御天下xTeio,权御天下,Teio,Leojk
+55,开往早晨的午夜xTeio,开往晨的夜,Teio,Leojk
+56,奇拉魔术秀KirariMagicShow,奇拉魔术秀,Teio,Leojk
+57,星间飞行xTeio,星间飞行,Teio,Leojk

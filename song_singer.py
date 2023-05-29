@@ -269,7 +269,7 @@ class Display:
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"弹幕'点歌X'(如:点歌8/点歌Win)", True, color)
+            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌哈基)", True, color)
             text_rect = text.get_rect(center=(self.screen_width / 4, y))
             self.screen.blit(text, text_rect)
         else:
@@ -424,16 +424,19 @@ class EmojiPlayer:
                             hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                             triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
                             await asyncio.sleep(2)
-                            hotkey_angry = 'b4e311930c02483094a315f78d593b9e'
-                            triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_angry)
+                            hotkey_shock = '7debc6a385594274add1b51f392bfd20'
+                            triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shock)
                             await asyncio.sleep(0.1)
                             if is_finished:
                                 is_finished = False
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_sakura = '6f9267fd4bbd4e8185b3df79d402e6d6'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sakura)
+                                await asyncio.sleep(2)
                                 hotkey_happy = '8bf6ffd23d8a439490d8166fc0025d95'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_happy)
-                                await asyncio.sleep(5)
+                                await asyncio.sleep(2)
                         else:
                             is_finished = True
                             if is_once:
@@ -448,41 +451,79 @@ class EmojiPlayer:
                                 await asyncio.sleep(1)
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
-                            if self.song_list.cur_song_index in range(2):
+                            if self.song_list.cur_song_index in range(2):  # 1 2
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
-                                await asyncio.sleep(0.1)
-                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                hotkey_sing = 'b1211cc396984fbca6efeba0f1791406'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing)
                                 await asyncio.sleep(3)
-                                hotkey_angry = 'b4e311930c02483094a315f78d593b9e'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_angry)
-                                await asyncio.sleep(0.3)
+                                hotkey_sing_cry = '755e376639404e4a82e8590554f8838b'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_cry)
+                                await asyncio.sleep(3)
+                            elif self.song_list.cur_song_index in range(2, 3):  # 3
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
-                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                hotkey_hachimi = 'f0e10b6c88cd49b983626d75b44c3095'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi)
                                 await asyncio.sleep(3)
-                            elif self.song_list.cur_song_index in range(2, 5):
-                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                hotkey_hachimi_love = '1d057977c90a496fab69b3148f06f9f1'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi_love)
                                 await asyncio.sleep(3)
-                                hotkey_happy = '8bf6ffd23d8a439490d8166fc0025d95'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_happy)
-                                await asyncio.sleep(3)
-                            else:  # 4-12 songs
+                            elif self.song_list.cur_song_index in range(3, 4):  # 4
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
-                                await asyncio.sleep(0.1)
-                                hotkey_shame = '4c02b99b4f6340abba558ff39cb83d66'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_shame)
+                                hotkey_hachimi = 'f0e10b6c88cd49b983626d75b44c3095'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi)
                                 await asyncio.sleep(3)
-                                hotkey_roger = '15d08dd5ba4e48349d6417e52fafc746'
-                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_roger)
+                                hotkey_hachimi_sparkle = '619d30d61a2c40a6a45228fab317d29b'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi_sparkle)
                                 await asyncio.sleep(3)
+                            elif self.song_list.cur_song_index in range(4, 5):  # 5
                                 hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
                                 triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_hachimi = 'f0e10b6c88cd49b983626d75b44c3095'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi)
                                 await asyncio.sleep(3)
+                                hotkey_hachimi_sakura = '131420f6803e4faca6eba8beb435be4d'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_hachimi_sakura)
+                                await asyncio.sleep(3)
+                            elif 0 == self.song_list.cur_song_index % 3:
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_sing = 'b1211cc396984fbca6efeba0f1791406'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing)
+                                await asyncio.sleep(1)
+                                hotkey_sing_happy = 'dc6ff1661a6f4fa3bb0f913a03871524'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_happy)
+                                await asyncio.sleep(2)
+                                hotkey_sing_love = '0f0dee7c4a55465ebd5a479b01630eb3'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_love)
+                                await asyncio.sleep(3)
+                            elif 1 == self.song_list.cur_song_index % 3:
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_sing = 'b1211cc396984fbca6efeba0f1791406'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing)
+                                await asyncio.sleep(1)
+                                hotkey_sing_happy = 'dc6ff1661a6f4fa3bb0f913a03871524'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_happy)
+                                await asyncio.sleep(2)
+                                hotkey_sing_sakura = 'f8efa02ce45b47ab91e5a2915cd53097'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_sakura)
+                                await asyncio.sleep(3)
+                            else:  # 3余2
+                                hotkey_clear = '7f83b2e85bf34a6d97c5615578c47343'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_clear)
+                                hotkey_sing = 'b1211cc396984fbca6efeba0f1791406'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing)
+                                await asyncio.sleep(1)
+                                hotkey_sing_happy = 'dc6ff1661a6f4fa3bb0f913a03871524'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_happy)
+                                await asyncio.sleep(2)
+                                hotkey_sing_sparkle = '674428b2db4b4aea8d8f987d99fd32ce'
+                                triggered_hotkey = await self.request_trigger_hotkey(websocket, hotkey_sing_sparkle)
+                                await asyncio.sleep(3)
+
                     else:
                         print("websocket为空！")
                         break
