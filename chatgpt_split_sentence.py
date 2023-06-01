@@ -1,5 +1,3 @@
-import os
-
 from revChatGPT.V1 import Chatbot as ChatbotV1
 from revChatGPT.V3 import Chatbot as ChatbotV3
 
@@ -9,11 +7,23 @@ USE_ACCESS_TOKEN = False
 # punctuations_to_split_text = set("。！？")
 # punctuations_to_split_text_longer = set(",")
 
-punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
-punctuations_to_split_text_longer = {'，'}
+punctuations_min_to_cut= {'。', '！', '？', '：', '\n'}
+punctuations_threshold_to_cut = {'。', '！', '？', '：', '\n', ','}
 
-min_sentence_length = 16
-sentence_longer_threshold = 32
+min_length = 16
+threshold_length = 32
+
+def should_cut_text(text, min, punctuations_min, threshold, punctuations_threshold):
+    should_cut = False
+    if len(text) >= min:
+        if text[-1] in punctuations_min:
+            should_cut = True
+        elif len(text) >= threshold:
+            if text[-1] in punctuations_threshold:
+                should_cut = True
+
+    return should_cut
+
 
 if USE_API_KEY:
     api_key = ""
@@ -24,22 +34,20 @@ if USE_API_KEY:
     sentences = []
     new_sentence = ""
     length = 0
-    for data in chatbot.ask(prompt):
+    for data in chatbot.ask_stream(prompt):
         print(data, end="", flush=True)
         length += len(data)
         if len(data) > 1:
             print(data)
 
-        should_split = False
         new_sentence += data
-        if len(new_sentence) >= min_sentence_length:
-            if new_sentence[-1] in punctuations_to_split_text:
-                should_split = True
-            elif len(new_sentence) >= sentence_longer_threshold:
-                if new_sentence[-1] in punctuations_to_split_text_longer:
-                    should_split = True
+        should_cut = should_cut_text(new_sentence, 
+                                       min_length, 
+                                       punctuations_min_to_cut, 
+                                       threshold_length,
+                                       punctuations_threshold_to_cut)
 
-        if should_split:
+        if should_cut:
             sentences.append(new_sentence.strip())
             new_sentence = ""
 
@@ -78,16 +86,15 @@ if USE_ACCESS_TOKEN:
                 prompt_is_skipped = True
                 new_sentence = ""
 
-        should_split = False
         new_sentence += new_words
-        if len(new_sentence) >= min_sentence_length:
-            if new_sentence[-1] in punctuations_to_split_text:
-                should_split = True
-            elif len(new_sentence) >= sentence_longer_threshold:
-                if new_sentence[-1] in punctuations_to_split_text_longer:
-                    should_split = True
+
+        should_cut = should_cut_text(new_sentence, 
+                                    min_length, 
+                                    punctuations_min_to_cut, 
+                                    threshold_length,
+                                    punctuations_threshold_to_cut)
         
-        if should_split:
+        if should_cut:
             sentences.append(new_sentence)
             new_sentence = ""
 

@@ -1,4 +1,3 @@
-import os
 from revChatGPT.V1 import Chatbot as ChatGPTV1
 from revChatGPT.V3 import Chatbot as ChatGPTV3
 
