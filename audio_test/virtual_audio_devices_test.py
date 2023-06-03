@@ -1,16 +1,10 @@
 import wave
-import sys
 
 import pyaudio
-
-
-CHUNK = 1024
 
 p = pyaudio.PyAudio()
 
 # https://vb-audio.com/Cable/
-# 2 CABLE Output
-# 8 CABLE Input
 
 PRINT_DEVICES = True
 
@@ -77,7 +71,16 @@ with wave.open("test.wav", 'rb') as wf:
     # Close stream (4)
     stream.close()
 
-    # Release PortAudio system resources (5)
-    p.terminate()
+with wave.open("test.wav", 'rb') as wf:
+    stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                    channels=wf.getnchannels(),
+                    rate=wf.getframerate(),
+                    output=True)
 
+    while len(data := wf.readframes(CHUNK)): 
+        stream.write(data)
+
+    stream.close()
+
+# Release PortAudio system resources (5)
 p.terminate()
