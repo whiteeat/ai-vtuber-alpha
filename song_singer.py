@@ -84,6 +84,7 @@ class SongPlayer:
         # Events
         self.on_play = None
         self.on_stop = None
+        self.interrupted = False
 
     def get_device_indices(self) -> None:
         assert self.pau is not None
@@ -131,17 +132,28 @@ class SongPlayer:
                                        channels=bgm_wave.getnchannels(),
                                        rate=bgm_wave.getframerate(),
                                        output=True)
+            
+            junk = None
+            init_junk = True
             while self.playing:
                 if not self.paused:
                     vox_data = vox_wave.readframes(self.CHUNK)
                     bgm_data = bgm_wave.readframes(self.CHUNK)
-                    if len(vox_data) != 0:
-                        vox_data = self.change_volume(vox_data, self.vox_volume)
-                        vox_stream.write(vox_data)
-                    if len(bgm_data) != 0:
-                        bgm_data = self.change_volume(bgm_data, self.bgm_volume)
+                    vox_size = len(vox_data)
+                    bgm_size = len(bgm_data)
+
+                    if init_junk:
+                        junk = bytes(vox_size)
+                        init_junk = False
+
+                    if vox_size != 0:
+                        if self.interrupted:
+                            vox_stream.write(junk)
+                        else:
+                            vox_stream.write(vox_data)
+                    if bgm_size != 0:
                         bgm_stream.write(bgm_data)
-                    if len(vox_data) == 0 and len(bgm_data) == 0:
+                    if vox_size == 0 and bgm_size == 0:
                         break
                 else:
                     time.sleep(0.1)
@@ -254,32 +266,36 @@ class PureMusic:
 class Display:
     def __init__(self, song_list: SongList):
         self.song_list = song_list
-        self.screen_width = 620
+        # self.screen_width = 620
+        self.screen_width = 1000
         self.screen_height = 720
         pygame.init()
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont('SimHei', 20)
-        self.title_font = pygame.font.SysFont('幼圆', 22)
+        self.font = pygame.font.SysFont('SimHei', 40)
+        self.title_font = pygame.font.SysFont('幼圆', 48)
         self.screen = None
         self.pos_y = self.screen_height / 2
 
     def draw_cur_song_name(self):
-        y = 20
-        pygame.draw.rect(self.screen, (0, 127, 255), (0, 0, 620, 40), width=0)
+        y = 30
+        # pygame.draw.rect(self.screen, (0, 127, 255), (0, 0, 620, 40), width=0)
+        pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, 620, 100), width=0)
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
             text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌哈基)", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 4, y))
-            self.screen.blit(text, text_rect)
+            # text_rect = text.get_rect(center=(self.screen_width / 4, y))
+            # self.screen.blit(text, text_rect)
+            self.screen.blit(text, (10, y))
         else:
             color = (0, 255, 255)
             current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
                            self.song_list.song_dicts[cur_show_index]['artist'] + ' ' + \
                            self.song_list.song_dicts[cur_show_index]['editor']
             text = self.title_font.render(f"★" + current_song + f"★", True, color)
-            text_rect = text.get_rect(center=(self.screen_width / 4, y))
-            self.screen.blit(text, text_rect)
+            # text_rect = text.get_rect(center=(self.screen_width / 4, y))
+            # self.screen.blit(text, text_rect)
+            self.screen.blit(text, (10, y))
 
     def draw_vox_file_list(self, _y):
         for i in range(len(self.song_list.song_dicts)):
@@ -291,7 +307,7 @@ class Display:
             ztx, zty, ztw, zth = text.get_rect()
             pos_rect = pygame.Rect(10, _y, ztw, zth)
             self.screen.blit(text, (pos_rect.x, pos_rect.y))
-            _y += 25
+            _y += 50
 
     def draw_bgm_file_list(self):
         y = 50
@@ -316,9 +332,10 @@ class Display:
                 y -= 2
                 if y < len(self.song_list.song_dicts) * -25:
                     y = self.pos_y
-                self.screen.fill(color=(0, 127, 255))
+                # self.screen.fill(color=(0, 127, 255))
+                self.screen.fill(color=(0, 0, 0))
                 self.draw_vox_file_list(y)
-                self.draw_bgm_file_list()
+                # self.draw_bgm_file_list()
                 self.draw_cur_song_name()
                 pygame.display.update()
                 self.clock.tick(30)
@@ -563,6 +580,9 @@ class SongMixer:
     def set_on_stop_event(self, func):
         self.song_plr.on_stop = func
 
+    def set_interrupted(self, flag):
+        self.song_plr.interrupted = flag
+
     def run(self, _msg: str = None):
         try:
             for event in pygame.event.get():
@@ -593,6 +613,10 @@ class SongMixer:
                         self.song_plr.stop()
                     else:
                         print("请先'点歌X'(如:点歌8/点歌Win)")
+                elif command == "#打断唱歌":
+                    self.set_interrupted(True)
+                elif command == "#继续唱歌":
+                    self.set_interrupted(False)
                 elif "666辣条" == command:
                     self.song_plr.set_volume(vox_volume=0.0, bgm_volume=0.8)
                 elif "666歌唱" == command:

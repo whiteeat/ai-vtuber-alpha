@@ -17,13 +17,13 @@ class SubtitleBar():
         self.window.configure(bg=transparentcolor)
         # self.window.overrideredirect(True)
         # self.window.attributes('-topmost', True)
-        self.window.geometry("512x512+256+256")
+        self.window.geometry("1000x128+512+512")
         self.window.bind('<Button-1>', self.SaveLastClickPos)
         self.window.bind('<B1-Motion>', self.Dragging)
         
         # https://www.tutorialspoint.com/python/tk_fonts.htm
         # #ffdb00
-        self.text = tk.Label(self.window, wraplength=1024, font=("Noto Sans SC", 32, "bold"), fg="#ffdb00", bg=transparentcolor, text="这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕")
+        self.text = tk.Label(self.window, wraplength=1000, font=("Noto Sans SC", 32, "bold"), fg="#ffffff", bg=transparentcolor, text="这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕")
         self.text.place(relx=0.5, rely=0.5, anchor='center')
 
         self.grip = ttk.Sizegrip(self.window)

@@ -117,9 +117,12 @@ class VITSProcess(multiprocessing.Process):
                 audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale,
                                   next_task.noise_scale_w, next_task.length_scale)
 
-                data = audio.astype(np.float32).tobytes()
+                # data = audio.astype(np.float32).tobytes()
 
-                task = AudioTask(data, next_task.text, cmd_sing=next_task.cmd_sing)
+                task = AudioTask(audio, 
+                                 next_task.text, 
+                                 pre_speaking_event=next_task.pre_speaking_event,
+                                 post_speaking_event=next_task.post_speaking_event)
                 self.result_queue.put(task)
 
             except Exception as e:
@@ -133,20 +136,35 @@ class VITSProcess(multiprocessing.Process):
 
 class VITSTask:
     def __init__(self, text, language=0, speaker_id=2, noise_scale=0.5, 
-                 noise_scale_w=0.5, length_scale=1.0, cmd_sing=None):
+                 noise_scale_w=0.5, length_scale=1.0, pre_speaking_event=None, post_speaking_event=None):
         self.text = text
         self.language = language
         self.sid = speaker_id
         self.noise_scale = noise_scale
         self.noise_scale_w = noise_scale_w
         self.length_scale = length_scale
-        self.cmd_sing = cmd_sing
+        self.pre_speaking_event = pre_speaking_event
+        self.post_speaking_event = post_speaking_event
+
+
+# By ChatGPT
+def normalize_audio(audio_data):
+    # Calculate the maximum absolute value in the audio data
+    max_value = np.max(np.abs(audio_data))
+    
+    # Normalize the audio data by dividing it by the maximum value
+    normalized_data = audio_data / max_value
+    
+    return normalized_data
+
 
 class AudioTask:
-    def __init__(self, data, text=None, cmd_sing=None):
+    def __init__(self, data, text=None, pre_speaking_event=None, post_speaking_event=None):
         self.data = data
         self.text = text
-        self.cmd_sing = cmd_sing
+        self.pre_speaking_event = pre_speaking_event
+        self.post_speaking_event = post_speaking_event
+
 
 class AudioPlayerProcess(multiprocessing.Process):
     def __init__(self, audio_task_queue, subtitle_task_queue, sing_queue, event_initalized):
@@ -233,10 +251,18 @@ class AudioPlayerProcess(multiprocessing.Process):
                 break
             try:
                 print(f"{proc_name} is working...")
-                data = next_task.data
+                pre_speaking_event = next_task.pre_speaking_event
+                if pre_speaking_event is not None:
+                    if pre_speaking_event.event_type == SpeakingEvent.SING:
+                        self.sing_queue.put(pre_speaking_event.msg)
+
+                audio = next_task.data
                 text = next_task.text
 
                 self.subtitle_task_queue.put(text)
+                
+                audio = normalize_audio(audio)
+                data = audio.view(np.uint8)
 
                 if self.is_audio_stream_enabled():
                     stream.write(data)
@@ -245,9 +271,10 @@ class AudioPlayerProcess(multiprocessing.Process):
                         self.virtual_audio_devices_are_found):
                     stream_virtual.write(data)
 
-                cmd_sing = next_task.cmd_sing
-                if cmd_sing is not None:
-                    self.sing_queue.put(cmd_sing)
+                post_speaking_event = next_task.post_speaking_event
+                if post_speaking_event is not None:
+                    if post_speaking_event.event_type == SpeakingEvent.SING:
+                        self.sing_queue.put(post_speaking_event.msg)
 
             except Exception as e:
                 print(e)
@@ -256,6 +283,19 @@ class AudioPlayerProcess(multiprocessing.Process):
         stream.close()
         stream_virtual.close()
         self.py_audio.terminate()
+        
+
+def should_cut_text(text, min, punctuations_min, threshold, punctuations_threshold):
+    should_cut = False
+    if len(text) >= min:
+        if text[-1] in punctuations_min:
+            should_cut = True
+        elif len(text) >= threshold:
+            if text[-1] in punctuations_threshold:
+                should_cut = True
+
+    return should_cut
+
 
 class ChatGPTProcess(multiprocessing.Process):
     def __init__(self, access_token, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
@@ -307,20 +347,18 @@ class ChatGPTProcess(multiprocessing.Process):
         elif self.api_key is not None:
             # engine_str = "gpt-3.5-turbo-0301"
             # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
-            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=2500, temperature=0.7,
-                                system_prompt=system_msg_updater.system_msg)
+            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=3000, temperature=0.7,
+                                system_prompt=preset_text_short)
             use_api_key = True
             print("Use API key")
 
         assert use_access_token or use_api_key, "Error: use_access_token and use_api_key are both False!"
 
-        # punctuations_to_split_text = set("。！？：\n")
-        # punctuations_to_split_text_longer = set(",")
         punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
-        punctuations_to_split_text_longer = {'，'}
+        punctuations_to_split_text_longer = {'。', '！', '？', '：', '\n', '，'}
 
-        min_sentence_length = 16
-        sentence_longer_threshold = 32
+        min_sentence_length = 12
+        sentence_longer_threshold = 24
 
         # Use short preset text for event
         chatbot.reset(convo_id='default', system_prompt=preset_text_short)
@@ -380,13 +418,13 @@ class ChatGPTProcess(multiprocessing.Process):
 
                         curr_song_dict = song_dict
 
+                        editor_name = None
+                        song_name = None
                         if song_dict is not None:
                             song_name = song_dict['name']
                             editor_name = song_dict['editor']
-                        else:
-                            song_name = None
 
-                        if editor_name == '-':
+                        if editor_name is not None and editor_name == '-':
                             editor_name = None
 
                         system_msg = SystemMessageManager.get_presing_sm(user_name, song_name, editor_name)
@@ -400,34 +438,34 @@ class ChatGPTProcess(multiprocessing.Process):
                         try:
                             new_sentence = ""
                             vits_task = None
-                            for data in chatbot.ask(prompt="", convo_id=channel):
-                                print(data, end="", flush=True)
+                            for data in chatbot.ask_stream(prompt="", convo_id=channel):
+                                print(data, end="|", flush=True)
 
                                 if vits_task is not None:
                                     self.vits_task_queue.put(vits_task)
                                     vits_task = None
 
-                                should_split = False
                                 new_sentence += data
-                                if len(new_sentence) >= min_sentence_length:
-                                    if new_sentence[-1] in punctuations_to_split_text:
-                                        should_split = True
-                                    elif len(new_sentence) >= sentence_longer_threshold:
-                                        if new_sentence[-1] in punctuations_to_split_text_longer:
-                                            should_split = True
+                                should_cut = should_cut_text(new_sentence, 
+                                                        min_sentence_length, 
+                                                        punctuations_to_split_text, 
+                                                        sentence_longer_threshold,
+                                                        punctuations_to_split_text_longer)
 
                                 # If code reaches here, meaning that the request to ChatGPT is successful.
                                 if self.is_vits_enabled():
-                                    if should_split:
+                                    if should_cut:
                                         vits_task = VITSTask(new_sentence.strip())
                                         new_sentence = ""
 
                             if self.is_vits_enabled():
-                                if vits_task is not None:
-                                    assert len(new_sentence) == 0
-                                    vits_task.cmd_sing = cmd_sing
+                                if vits_task is None:
+                                    vits_task = VITSTask(new_sentence.strip())
                                 else:
-                                    vits_task = VITSTask(new_sentence.strip(), cmd_sing=cmd_sing)
+                                    assert len(new_sentence) == 0
+
+                                if song_dict is not None:
+                                    vits_task.post_speaking_event = SpeakingEvent(SpeakingEvent.SING, cmd_sing)
 
                                 self.vits_task_queue.put(vits_task)
 
@@ -440,7 +478,11 @@ class ChatGPTProcess(multiprocessing.Process):
                             else:
                                 response_to_song_request_msg = f"对不起，{user_name}同学，我不会唱你点的这首歌。"
                             
-                            vits_task = VITSTask(response_to_song_request_msg, cmd_sing=cmd_sing)
+                            vits_task = VITSTask(response_to_song_request_msg)
+                            
+                            if song_dict is not None:
+                                vits_task.post_speaking_event = SpeakingEvent(SpeakingEvent.SING, cmd_sing)
+
                             self.vits_task_queue.put(vits_task)
 
                         if song_dict is not None:
@@ -473,51 +515,41 @@ class ChatGPTProcess(multiprocessing.Process):
                         repeat_user_message = False
                         if channel in chatbot.conversation:
                             if len(chatbot.conversation[channel]) >= 9:
-                                chatbot.conversation[channel].pop(1)
-                                chatbot.conversation[channel].pop(1)
+                                chatbot.reset(convo_id=channel)
                     else:
-                        if channel not in chatbot.conversation:
-                            chatbot.reset(convo_id=channel)
+                        if (channel not in chatbot.conversation or 
+                            len(chatbot.conversation[channel])) >= 9:
+                            system_msg = system_msg_updater.get_system_message()
+                            chatbot.reset(channel, system_msg)
 
-                        system_msg = system_msg_updater.get_system_message()
-                        chatbot.conversation[channel][0]['content'] = system_msg
-
-                        # Remove one Q and one A.
-                        # Limit the size of history.
-                        if channel in chatbot.conversation:
-                            if len(chatbot.conversation[channel]) >= 9:
-                                chatbot.conversation[channel].pop(1)
-                                chatbot.conversation[channel].pop(1)
                         repeat_message = f"{user_name}说：“{msg}”"
                         # prompt_msg = f"（{user_name}对你说：)“{msg}”"
                         prompt_msg = f"我是{user_name}，{msg}"
 
                     if use_api_key:
                         new_sentence = ""
-                        for data in chatbot.ask(prompt=prompt_msg, convo_id=channel):
-                            print(data, end="", flush=True)
-
-                            should_split = False
+                        for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=channel):
+                            print(data, end='|', flush=True)
+                            
                             new_sentence += data
-                            if len(new_sentence) >= min_sentence_length:
-                                if new_sentence[-1] in punctuations_to_split_text:
-                                    should_split = True
-                                elif len(new_sentence) >= sentence_longer_threshold:
-                                    if new_sentence[-1] in punctuations_to_split_text_longer:
-                                        should_split = True
+                            should_cut = should_cut_text(new_sentence, 
+                                                    min_sentence_length, 
+                                                    punctuations_to_split_text, 
+                                                    sentence_longer_threshold,
+                                                    punctuations_to_split_text_longer)
 
                             # If code reaches here, meaning that the request to ChatGPT is successful.
                             if self.is_vits_enabled():
-                                if repeat_user_message:
-                                    vits_task = VITSTask(repeat_message.strip())
-                                    self.vits_task_queue.put(vits_task)
-                                    # time.sleep(1.0) # Simulate speech pause
-                                    repeat_user_message = False
-
-                                if should_split:
-                                    vits_task = VITSTask(new_sentence.strip())
-                                    self.vits_task_queue.put(vits_task)
-                                    new_sentence = ""
+                                if should_cut:
+                                    if repeat_user_message:
+                                        vits_task = VITSTask(repeat_message.strip())
+                                        self.vits_task_queue.put(vits_task)
+                                        # time.sleep(1.0) # Simulate speech pause
+                                        repeat_user_message = False
+                              
+                                        vits_task = VITSTask(new_sentence.strip())
+                                        self.vits_task_queue.put(vits_task)
+                                        new_sentence = ""
 
                         if len(new_sentence) > 0:
                             if self.is_vits_enabled():
@@ -618,22 +650,20 @@ class ChatGPTProcess(multiprocessing.Process):
                         
                         try:
                             new_sentence = ""
-                            for data in chatbot.ask(prompt="", convo_id=channel):
-                                print(data, end="", flush=True)
+                            for data in chatbot.ask_stream(prompt="", convo_id=channel):
+                                print(data, end="|", flush=True)
 
-                                should_split = False
                                 new_sentence += data
-                                if len(new_sentence) >= min_sentence_length:
-                                    if new_sentence[-1] in punctuations_to_split_text:
-                                        should_split = True
-                                    elif len(new_sentence) >= sentence_longer_threshold:
-                                        if new_sentence[-1] in punctuations_to_split_text_longer:
-                                            should_split = True
+                                should_cut = should_cut_text(new_sentence, 
+                                                    min_sentence_length, 
+                                                    punctuations_to_split_text, 
+                                                    sentence_longer_threshold,
+                                                    punctuations_to_split_text_longer)
 
-                                    if should_split:
-                                        vits_task = VITSTask(new_sentence.strip())
-                                        self.vits_task_queue.put(vits_task)
-                                        new_sentence = ""
+                                if should_cut:
+                                    vits_task = VITSTask(new_sentence.strip())
+                                    self.vits_task_queue.put(vits_task)
+                                    new_sentence = ""
 
                             if len(new_sentence) > 0:
                                 if self.is_vits_enabled():
@@ -650,14 +680,90 @@ class ChatGPTProcess(multiprocessing.Process):
                             self.vits_task_queue.put(vits_task)
 
                         self.app_state.value = AppState.CHAT
+                    elif cmd_msg == "#测试打断":
+                        test_interrupted_line = "有什么话想和我说吗？没事我继续唱啦~"
+                        pre_event = SpeakingEvent(SpeakingEvent.SING, "#打断唱歌")
+                        post_event = SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
+                        vits_task = VITSTask(test_interrupted_line, 
+                                            pre_speaking_event=pre_event, 
+                                            post_speaking_event=post_event)
+                        self.vits_task_queue.put(vits_task)
+
                     elif cmd_msg is None:
                         # Poison pill means shutdown
                         print(f"{proc_name}: Exiting")
                         break
 
+                elif not self.thanks_queue.empty():
+                    task = self.thanks_queue.get()
+
+                    user_name = task.user_name
+                    msg = task.message
+                    channel = "sing"
+
+                    system_msg = SystemMessageManager.sing_thanks
+                    chatbot.reset(convo_id=channel, system_prompt=system_msg)
+
+                    try:
+                        first_sentence = True
+                        new_sentence = ""
+                        vits_task = None
+                        for data in chatbot.ask_stream(prompt=msg, convo_id=channel):
+                            print(data, end='|', flush=True)
+
+                            if vits_task is not None:
+                                if first_sentence:      
+                                    vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SING, "#打断唱歌")                        
+                                    self.vits_task_queue.put(vits_task)
+                                    vits_task = None   
+                                    first_sentence = False
+
+                            new_sentence += data
+
+                            should_cut = should_cut_text(new_sentence, 
+                                                        min_sentence_length, 
+                                                        punctuations_to_split_text, 
+                                                        sentence_longer_threshold,
+                                                        punctuations_to_split_text_longer)
+                            
+                            # If code reaches here, meaning that the request to ChatGPT is successful.
+                            if self.is_vits_enabled():
+                                if should_cut:
+                                    vits_task = VITSTask(new_sentence.strip())
+                                    new_sentence = ""
+
+                        if self.is_vits_enabled():
+                            if vits_task is not None:
+                                assert len(new_sentence) == 0
+                                vits_task.post_speaking_event = SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
+                            else:
+                                vits_task = VITSTask(new_sentence.strip(), 
+                                                    post_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#继续唱歌"))
+                                
+                            if first_sentence:
+                                vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SING, "#打断唱歌")
+
+                            self.vits_task_queue.put(vits_task)
+
+                    except Exception as e:
+                        response_to_interuption_msg = f"十分感谢您的认可！要不要跟着小爷一起唱呢？"
+                        vits_task = VITSTask(response_to_interuption_msg, 
+                                            pre_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#打断唱歌"),
+                                            post_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
+                                            )
+
+                        self.vits_task_queue.put(vits_task)
+
                 else:
                     time.sleep(1.0)
                     
+class SpeakingEvent:
+    SING = 0
+
+    def __init__(self, event_type, msg):
+        self.event_type = event_type
+        self.msg = msg
+
 
 class ChatTask:
     def __init__(self, user_name, message, channel):
@@ -758,8 +864,8 @@ class LiveCommentProcess(multiprocessing.Process):
             try:
                 jd = json.loads(data[16:].decode('utf-8', errors='ignore'))
 
-                if self.app_state.value == AppState.CHAT:
-                    if (jd['cmd'] == 'DANMU_MSG'):
+                if (jd['cmd'] == 'DANMU_MSG'):
+                    if self.app_state.value == AppState.CHAT:
                         user_name = jd['info'][2][1]
                         msg = jd['info'][1]
                         print('[DANMU] ', user_name, ': ', msg)
@@ -773,22 +879,24 @@ class LiveCommentProcess(multiprocessing.Process):
                             self.chat_queue.put(task)
 
                 elif (jd['cmd'] == 'SEND_GIFT'):
-                    print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
-                          jd['data']['giftName'])
-                    user_name = jd['data']['uname']
-                    gift_num = jd['data']['num']
-                    gift_name = jd['data']['giftName']
-                    channel = 'default'
+                    if (self.app_state.value == AppState.CHAT or 
+                        self.app_state.value == AppState.SING):
+                        print('[GITT]', jd['data']['uname'], ' ', jd['data']['action'], ' ', jd['data']['num'], 'x',
+                            jd['data']['giftName'])
+                        user_name = jd['data']['uname']
+                        gift_num = jd['data']['num']
+                        gift_name = jd['data']['giftName']
+                        channel = 'default'
+                    
+                        # msg = f"（{user_name}投喂了{gift_num}个{gift_name}礼物给你。）"
+                        msg = f"我是{user_name}，刚刚投喂了{gift_num}个{gift_name}礼物给你！"
+                        if self.is_response_enabled():
+                            task = ChatTask(user_name, msg, channel)
 
-                    # msg = f"（{user_name}投喂了{gift_num}个{gift_name}礼物给你。）"
-                    msg = f"我是{user_name}，刚刚投喂了{gift_num}个{gift_name}礼物给你！"
-                    if self.is_response_enabled():
-                        task = ChatTask(user_name, msg, channel)
+                            if self.thanks_queue.full():
+                                _ = self.thanks_queue.get()
 
-                        if self.thanks_queue.full():
-                            _ = self.thanks_queue.get()
-
-                        self.thanks_queue.put(task)
+                            self.thanks_queue.put(task)
 
                 elif (jd['cmd'] == 'LIKE_INFO_V3_CLICK'):
                     user_name = jd['data']['uname']
@@ -808,12 +916,12 @@ class LiveCommentProcess(multiprocessing.Process):
                 elif (jd['cmd'] == 'PREPARING'):
                     print('[Notice] LIVE Ended!')
                 elif (jd['cmd'] == 'INTERACT_WORD'):
-                    if self.app_state.value == AppState.CHAT:
-                        user_name = jd['data']['uname']
-                        msg_type = jd['data']['msg_type']
-                        channel = 'default'
-                        # 进场
-                        if msg_type == 1:
+                    user_name = jd['data']['uname']
+                    msg_type = jd['data']['msg_type']
+                    channel = 'default'
+                    # 进场
+                    if msg_type == 1:
+                        if self.app_state.value == AppState.CHAT:
                             # msg = f"（{user_name}进入了你的直播间。）"
                             # msg = f"主播好！我是{user_name}，来你的直播间了！"
                             msg = f"主播好！我是{user_name}，我来了！"
@@ -827,8 +935,10 @@ class LiveCommentProcess(multiprocessing.Process):
 
                                 self.greeting_queue.put(task)
 
-                        # 关注
-                        elif msg_type == 2:
+                    # 关注
+                    elif msg_type == 2:
+                        if (self.app_state.value == AppState.CHAT or 
+                            self.app_state.value == AppState.SING):
                             # msg = f"（{user_name}关注了你的直播间。）"
                             msg = f"我是{user_name}，刚刚关注了你的直播间！"
                             print(f"[INTERACT_WORD] {msg}")
@@ -884,6 +994,8 @@ class SystemMessageManager:
 
     sing_finish_no_editor_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”。这时，你要感谢台下观众的聆听，你说：（续写内容不要用“”括起来！）"
 
+    sing_thanks = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上直播唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。如果有观众在你唱歌的时候现场送礼，点赞，或是关注了你的直播间，你会暂停唱歌，答谢观众。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。"
+
     def get_presing_sm(user_name, song_name=None, editor_name=None):
         if song_name is not None:
             if editor_name is not None:
@@ -917,8 +1029,8 @@ if __name__ == '__main__':
                                               event_live_comment_process_initialized, event_live_comment_process_stop)
     live_comment_process.start()
 
-    cmd_queue = multiprocessing.Queue(maxsize=1)
-    sing_queue = multiprocessing.Queue(maxsize=1)
+    cmd_queue = multiprocessing.Queue(maxsize=4)
+    sing_queue = multiprocessing.Queue(maxsize=4)
 
     event_song_singer_process_initialized = multiprocessing.Event()
     song_singer_process = song_singer.SongSingerProcess(sing_queue, cmd_queue, event_song_singer_process_initialized)
@@ -939,8 +1051,8 @@ if __name__ == '__main__':
     event_is_speaking = multiprocessing.Event()
 
     # Or cpu
-    # device_str = 'cuda'
-    device_str = 'cpu'
+    device_str = 'cuda'
+    # device_str = 'cpu'
     vits_process = VITSProcess(
         device_str,
         vits_task_queue,
@@ -1025,6 +1137,8 @@ if __name__ == '__main__':
             if user_input == "#唱歌结束":
                 # cmd_queue.put("#唱歌结束")
                 sing_queue.put("666切歌")
+            elif user_input == "#测试打断":
+                cmd_queue.put("#测试打断")
 
     event_live_comment_process_stop.set()
     chat_queue.put(None)

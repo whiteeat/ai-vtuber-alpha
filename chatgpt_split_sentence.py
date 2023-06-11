@@ -8,7 +8,7 @@ USE_ACCESS_TOKEN = False
 # punctuations_to_split_text_longer = set(",")
 
 punctuations_min_to_cut= {'。', '！', '？', '：', '\n'}
-punctuations_threshold_to_cut = {'。', '！', '？', '：', '\n', ','}
+punctuations_threshold_to_cut = {'。', '！', '？', '：', '\n', '，'}
 
 min_length = 16
 threshold_length = 32
@@ -35,10 +35,10 @@ if USE_API_KEY:
     new_sentence = ""
     length = 0
     for data in chatbot.ask_stream(prompt):
-        print(data, end="", flush=True)
+        print(data, end='|', flush=True)
         length += len(data)
-        if len(data) > 1:
-            print(data)
+        # if len(data) > 1:
+        #     print(data)
 
         new_sentence += data
         should_cut = should_cut_text(new_sentence, 
