@@ -129,3 +129,5 @@ dmypy.json
 .pyre/
 /.vscode/
 /vits/model/*.pth
+/token.txt
+/vts_api_test/token.txt

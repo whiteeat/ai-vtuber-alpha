@@ -32,6 +32,10 @@ import prompt_hot_update
 from app_utils import *
 import song_singer
 
+from system_message_manager import SystemMessageManager
+
+from vts_utils import ExpressionHelper, VTSAPIProcess, VTSAPITask
+
 
 class VITSProcess(multiprocessing.Process):
     def __init__(
@@ -39,14 +43,12 @@ class VITSProcess(multiprocessing.Process):
             device_str,
             task_queue,
             result_queue,
-            event_initialized,
-            event_is_speaking=None):
+            event_initialized):
         multiprocessing.Process.__init__(self)
         self.device_str = device_str
         self.task_queue = task_queue  # VITS inference task queue
         self.result_queue = result_queue  # Audio data queue
         self.event_initialized = event_initialized
-        self.event_is_speaking = event_is_speaking
 
     def get_text(self, text, hps):
         text_norm, clean_text = text_to_sequence(text, hps.symbols, hps.data.text_cleaners)
@@ -114,15 +116,17 @@ class VITSProcess(multiprocessing.Process):
                 break
             try:
                 print(f"{proc_name} is working...")
-                audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale,
-                                  next_task.noise_scale_w, next_task.length_scale)
+                audio = None
+                if next_task.text is not None:
+                    audio = self.vits(next_task.text, next_task.language, next_task.sid, next_task.noise_scale,
+                                    next_task.noise_scale_w, next_task.length_scale)
 
                 # data = audio.astype(np.float32).tobytes()
 
                 task = AudioTask(audio, 
-                                 next_task.text, 
-                                 pre_speaking_event=next_task.pre_speaking_event,
-                                 post_speaking_event=next_task.post_speaking_event)
+                                next_task.text, 
+                                pre_speaking_event=next_task.pre_speaking_event,
+                                post_speaking_event=next_task.post_speaking_event)
                 self.result_queue.put(task)
 
             except Exception as e:
@@ -130,8 +134,6 @@ class VITSProcess(multiprocessing.Process):
                 # print(f"Errors ocurrs in the process {proc_name}")
             finally:
                 self.task_queue.task_done()
-                if self.event_is_speaking is not None:
-                    self.event_is_speaking.clear()
 
 
 class VITSTask:
@@ -167,11 +169,12 @@ class AudioTask:
 
 
 class AudioPlayerProcess(multiprocessing.Process):
-    def __init__(self, audio_task_queue, subtitle_task_queue, sing_queue, event_initalized):
+    def __init__(self, audio_task_queue, subtitle_task_queue, sing_queue, vts_api_queue, event_initalized):
         super().__init__()
         self.task_queue = audio_task_queue
         self.subtitle_task_queue = subtitle_task_queue
         self.sing_queue = sing_queue
+        self.vts_api_queue = vts_api_queue
         self.event_initalized = event_initalized
 
         self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, False)
@@ -255,30 +258,69 @@ class AudioPlayerProcess(multiprocessing.Process):
                 if pre_speaking_event is not None:
                     if pre_speaking_event.event_type == SpeakingEvent.SING:
                         self.sing_queue.put(pre_speaking_event.msg)
+                    elif pre_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
+                        expression_file = ExpressionHelper.emotion_to_expression_file(pre_speaking_event.msg)
+                        if expression_file is not None:
+                            msg_type = "ExpressionActivationRequest"
+                            data_dict = {
+                                "expressionFile": expression_file,
+                                "active": True
+                            }
+
+                            vts_api_task = VTSAPITask(msg_type, data_dict)
+                            self.vts_api_queue.put(vts_api_task)
+                    elif pre_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
+                        msg_type = "HotkeyTriggerRequest"
+                        data_dict = {
+                            "hotkeyID": pre_speaking_event.msg
+                        }
+
+                        vts_api_task = VTSAPITask(msg_type, data_dict)
+                        self.vts_api_queue.put(vts_api_task)
 
                 audio = next_task.data
                 text = next_task.text
-
-                self.subtitle_task_queue.put(text)
                 
-                audio = normalize_audio(audio)
-                data = audio.view(np.uint8)
+                if text is not None:
+                    self.subtitle_task_queue.put(text)
+                
+                if audio is not None:
+                    audio = normalize_audio(audio)
+                    data = audio.view(np.uint8)
 
-                if self.is_audio_stream_enabled():
-                    stream.write(data)
+                    if self.is_audio_stream_enabled():
+                        stream.write(data)
 
-                if (self.is_audio_stream_virtual_enabled() and
-                        self.virtual_audio_devices_are_found):
-                    stream_virtual.write(data)
+                    if (self.is_audio_stream_virtual_enabled() and
+                            self.virtual_audio_devices_are_found):
+                        stream_virtual.write(data)
 
                 post_speaking_event = next_task.post_speaking_event
                 if post_speaking_event is not None:
                     if post_speaking_event.event_type == SpeakingEvent.SING:
                         self.sing_queue.put(post_speaking_event.msg)
+                    elif post_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
+                        expression_file = ExpressionHelper.emotion_to_expression_file(post_speaking_event.msg)
+                        if expression_file is not None:
+                            msg_type = "ExpressionActivationRequest"
+                            data_dict = {
+                                "expressionFile": expression_file,
+                                "active": True
+                            }
+
+                            vts_api_task = VTSAPITask(msg_type, data_dict)
+                            self.vts_api_queue.put(vts_api_task)
+                    elif post_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
+                        msg_type = "HotkeyTriggerRequest"
+                        data_dict = {
+                            "hotkeyID": post_speaking_event.msg
+                        }
+
+                        vts_api_task = VTSAPITask(msg_type, data_dict)
+                        self.vts_api_queue.put(vts_api_task)
 
             except Exception as e:
                 print(e)
-                # print(f"Errors ocurrs in the process {proc_name}")
 
         stream.close()
         stream_virtual.close()
@@ -333,8 +375,10 @@ class ChatGPTProcess(multiprocessing.Process):
         proc_name = self.name
         print(f"Initializing {proc_name}...")
 
-        system_msg_updater = prompt_hot_update.SystemMessageUpdater()
-        system_msg_updater.start(60.0)
+        # system_msg_updater = prompt_hot_update.SystemMessageUpdater()
+        # system_msg_updater.start(60.0)
+
+        system_message_manager = SystemMessageManager()
 
         song_list = song_singer.SongList()
 
@@ -372,7 +416,7 @@ class ChatGPTProcess(multiprocessing.Process):
         print(f"{proc_name} is Initialized.")
 
         while True:
-            system_msg_updater.update()
+            # system_msg_updater.update()
 
             if self.app_state.value == AppState.CHAT:
                 task = None
@@ -427,7 +471,7 @@ class ChatGPTProcess(multiprocessing.Process):
                         if editor_name is not None and editor_name == '-':
                             editor_name = None
 
-                        system_msg = SystemMessageManager.get_presing_sm(user_name, song_name, editor_name)
+                        system_msg = SystemMessageManager_1.get_presing_sm(user_name, song_name, editor_name)
 
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
 
@@ -518,91 +562,69 @@ class ChatGPTProcess(multiprocessing.Process):
                                 chatbot.reset(convo_id=channel)
                     else:
                         if (channel not in chatbot.conversation or 
-                            len(chatbot.conversation[channel])) >= 9:
-                            system_msg = system_msg_updater.get_system_message()
+                            len(chatbot.conversation[channel]) >= 9):
+                            # system_msg = system_msg_updater.get_system_message()
+                            system_msg = system_message_manager.systetm_message
                             chatbot.reset(channel, system_msg)
 
                         repeat_message = f"{user_name}说：“{msg}”"
                         # prompt_msg = f"（{user_name}对你说：)“{msg}”"
                         prompt_msg = f"我是{user_name}，{msg}"
 
-                    if use_api_key:
-                        new_sentence = ""
-                        for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=channel):
-                            print(data, end='|', flush=True)
-                            
-                            new_sentence += data
-                            should_cut = should_cut_text(new_sentence, 
-                                                    min_sentence_length, 
-                                                    punctuations_to_split_text, 
-                                                    sentence_longer_threshold,
-                                                    punctuations_to_split_text_longer)
+                    new_sentence = ""
+                    is_first_sentence = True
+                    for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=channel):
+                        print(data, end='|', flush=True)
+                        
+                        new_sentence += data
+                        should_cut = should_cut_text(new_sentence, 
+                                                min_sentence_length, 
+                                                punctuations_to_split_text, 
+                                                sentence_longer_threshold,
+                                                punctuations_to_split_text_longer)
 
-                            # If code reaches here, meaning that the request to ChatGPT is successful.
-                            if self.is_vits_enabled():
-                                if should_cut:
-                                    if repeat_user_message:
-                                        vits_task = VITSTask(repeat_message.strip())
-                                        self.vits_task_queue.put(vits_task)
-                                        # time.sleep(1.0) # Simulate speech pause
-                                        repeat_user_message = False
-                              
-                                        vits_task = VITSTask(new_sentence.strip())
-                                        self.vits_task_queue.put(vits_task)
-                                        new_sentence = ""
+                        # If code reaches here, meaning that the request to ChatGPT is successful.
+                        if self.is_vits_enabled():
+                            if should_cut:
+                                if repeat_user_message:
+                                    vits_task = VITSTask(repeat_message.strip())
+                                    self.vits_task_queue.put(vits_task)
+                                    # time.sleep(1.0) # Simulate speech pause
+                                    repeat_user_message = False
 
-                        if len(new_sentence) > 0:
-                            if self.is_vits_enabled():
-                                vits_task = VITSTask(new_sentence.strip())
-                                self.vits_task_queue.put(vits_task)
-
-                    # elif use_access_token:
-                    elif False:
-                        if not self.is_streamed_enabled():
-                            for data in chatbot.ask(msg):
-                                response = data["message"]
-                            print(response)
-                            if self.is_vits_enabled():
-                                vits_task = VITSTask(response)
-                                self.vits_task_queue.put(vits_task)
-                        else:
-                            prev_message = ""
-                            prompt_is_skipped = False
-                            new_sentence = ""
-                            for data in chatbot.ask(
-                                    msg,
-                                    # timeout=120
-                            ):
-                                message = data["message"]
-                                new_words = message[len(prev_message):]
-                                print(new_words, end="", flush=True)
-
-                                if not prompt_is_skipped:
-                                    # The streamed response may contain the prompt,
-                                    # So the prompt in the streamed response should be skipped
-                                    new_sentence += new_words
-                                    if new_sentence == msg[:len(new_sentence.strip())]:
-                                        continue
+                                    if is_first_sentence:
+                                        emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
+                                        print(f"#{line}#")
+                                        vits_task = VITSTask(line.strip())
+                                        if emotion in ExpressionHelper.emotion_to_expression:
+                                            vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
+                                        is_first_sentence = False
                                     else:
-                                        prompt_is_skipped = True
-                                        new_sentence = ""
-
-                                should_do_vits = False
-                                new_sentence += new_words
-                                if len(new_sentence) >= min_sentence_length:
-                                    if new_sentence[-1] in punctuations_to_split_text:
-                                        should_do_vits = True
-                                    elif len(new_sentence) >= sentence_longer_threshold:
-                                        if new_sentence[-1] in punctuations_to_split_text_longer:
-                                            should_do_vits = True
-
-                                if should_do_vits:
-                                    if self.is_vits_enabled():
                                         vits_task = VITSTask(new_sentence.strip())
-                                        self.vits_task_queue.put(vits_task)
+
+                                    self.vits_task_queue.put(vits_task)
                                     new_sentence = ""
 
-                                prev_message = message
+                    if len(new_sentence) > 0:
+                        if self.is_vits_enabled():
+                            pre_speaking_event = None
+                            line = new_sentence
+                            if is_first_sentence:
+                                emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
+                                if emotion in ExpressionHelper.emotion_to_expression:
+                                    pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
+                                is_first_sentence = False
+                            
+                            vits_task = VITSTask(line.strip(), 
+                                                pre_speaking_event=pre_speaking_event)
+                            self.vits_task_queue.put(vits_task)
+
+                    if self.is_vits_enabled():
+                        # A task with no text for TTS, just for SpeakingEvent at the end of the conversation.
+                        end_task = VITSTask(None,
+                                            post_speaking_event=SpeakingEvent(SpeakingEvent.TRIGGER_HOTKEY, "Clear"))
+                        self.vits_task_queue.put(end_task)
+
                 except Exception as e:
                     print(e)
                     if channel == 'chat':
@@ -645,7 +667,7 @@ class ChatGPTProcess(multiprocessing.Process):
                         if editor_name == '-':
                             editor_name = None
 
-                        system_msg = SystemMessageManager.get_finish_template(song_name, editor_name)
+                        system_msg = SystemMessageManager_1.get_finish_template(song_name, editor_name)
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
                         
                         try:
@@ -701,7 +723,7 @@ class ChatGPTProcess(multiprocessing.Process):
                     msg = task.message
                     channel = "sing"
 
-                    system_msg = SystemMessageManager.sing_thanks
+                    system_msg = SystemMessageManager_1.sing_thanks
                     chatbot.reset(convo_id=channel, system_prompt=system_msg)
 
                     try:
@@ -759,6 +781,8 @@ class ChatGPTProcess(multiprocessing.Process):
                     
 class SpeakingEvent:
     SING = 0
+    SET_EXPRESSION = 1
+    TRIGGER_HOTKEY = 2
 
     def __init__(self, event_type, msg):
         self.event_type = event_type
@@ -982,7 +1006,7 @@ class LiveCommentProcess(multiprocessing.Process):
 
 preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。你说话简练。"
 
-class SystemMessageManager:
+class SystemMessageManager_1:
     sing_accept_thank_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，这首歌是“{t_editor_name}”大佬教你唱的，你同意唱并且要答谢教你的大佬，这时你对这名观众说：（续写内容不要带“”）"
 
     sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（续写内容不要带“”）"
@@ -999,19 +1023,19 @@ class SystemMessageManager:
     def get_presing_sm(user_name, song_name=None, editor_name=None):
         if song_name is not None:
             if editor_name is not None:
-                return SystemMessageManager.sing_accept_thank_tempate.format(t_user_name=user_name, 
+                return SystemMessageManager_1.sing_accept_thank_tempate.format(t_user_name=user_name, 
                                                                        t_song_name=song_name,
                                                                        t_editor_name=editor_name)
             else:
-                return SystemMessageManager.sing_accept_tempate.format(t_user_name=user_name, t_song_name=song_name)
+                return SystemMessageManager_1.sing_accept_tempate.format(t_user_name=user_name, t_song_name=song_name)
         else:
-            return SystemMessageManager.sing_refuse_template.format(t_user_name=user_name)
+            return SystemMessageManager_1.sing_refuse_template.format(t_user_name=user_name)
         
     def get_finish_template(song_name, editor_name=None):
         if editor_name is not None:
-            return SystemMessageManager.sing_finish_template.format(t_song_name=song_name, t_editor_name=editor_name)
+            return SystemMessageManager_1.sing_finish_template.format(t_song_name=song_name, t_editor_name=editor_name)
         else:
-            return SystemMessageManager.sing_finish_no_editor_template.format(t_song_name=song_name)
+            return SystemMessageManager_1.sing_finish_no_editor_template.format(t_song_name=song_name)
 
 if __name__ == '__main__':
     app_state = multiprocessing.Value('i', AppState.CHAT)
@@ -1048,7 +1072,6 @@ if __name__ == '__main__':
     audio_task_queue = multiprocessing.Queue()
 
     event_vits_process_initialized = multiprocessing.Event()
-    event_is_speaking = multiprocessing.Event()
 
     # Or cpu
     device_str = 'cuda'
@@ -1057,14 +1080,14 @@ if __name__ == '__main__':
         device_str,
         vits_task_queue,
         audio_task_queue,
-        event_vits_process_initialized,
-        event_is_speaking)
+        event_vits_process_initialized)
     vits_process.start()
 
     event_audio_player_process_initialized = multiprocessing.Event()
     subtitle_task_queue = multiprocessing.Queue()
 
-    audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue, sing_queue,
+    vts_api_queue = multiprocessing.Queue(maxsize=8)
+    audio_player_process = AudioPlayerProcess(audio_task_queue, subtitle_task_queue, sing_queue, vts_api_queue,
                                               event_audio_player_process_initialized)
     audio_player_process.start()
 
@@ -1072,6 +1095,9 @@ if __name__ == '__main__':
 
     subtitle_bar_process = subtitle.SubtitleBarProcess(subtitle_task_queue, event_subtitle_bar_process_initialized)
     subtitle_bar_process.start()
+
+    vts_api_process = VTSAPIProcess(vts_api_queue)
+    vts_api_process.start()
 
     event_subtitle_bar_process_initialized.wait()
 
@@ -1147,6 +1173,7 @@ if __name__ == '__main__':
     subtitle_task_queue.put(None)
     sing_queue.put(None)
     cmd_queue.put(None)
+    vts_api_queue.put(None)
 
     vits_process.join()
     chat_gpt_process.join()
@@ -1154,3 +1181,4 @@ if __name__ == '__main__':
     song_singer_process.join()
     audio_player_process.join()
     subtitle_bar_process.join()
+    vts_api_process.join()

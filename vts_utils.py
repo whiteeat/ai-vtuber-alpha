@@ -1,9 +1,45 @@
 import asyncio
 import queue
 
+import re
 import multiprocessing
 
 import pyvts
+
+class ExpressionHelper:
+    # emotion_to_expression = {
+    #     "愉快": "Happy",
+    #     "伤心": "Sad",
+    #     "生气": "Angry",
+    #     "平静": "neutral"
+    # }
+    emotion_to_expression = {}
+
+    def get_emotion_and_line(response):
+        pattern = r'^\[(.*?)\]'
+        match = re.search(pattern, response)
+
+        if match:
+            emotion = match.group(1)
+            emotion_with_brackets = match.group(0)
+
+            return emotion, response[len(emotion_with_brackets):]
+        else:
+            return None, response
+        
+    def emotion_to_expression_file(emotion):
+        if emotion in ExpressionHelper.emotion_to_expression:
+            expression = ExpressionHelper.emotion_to_expression[emotion]
+            return f"{expression}.exp3.json"
+        else:
+            return None
+        
+
+class VTSAPITask:
+    def __init__(self, msg_type, data, request_id=None):
+        self.msg_type = msg_type
+        self.data = data
+        self.request_id = request_id
 
 class VTSAPIProcess(multiprocessing.Process):
     def __init__(
@@ -119,73 +155,3 @@ class VTSAPIProcess(multiprocessing.Process):
 
     def run(self):
         asyncio.run(self.main())
-
-
-class VTSAPITask:
-    def __init__(self, msg_type, data, request_id=None):
-        self.msg_type = msg_type
-        self.data = data
-        self.request_id = request_id
-
-if __name__ == "__main__":
-    vts_api_queue = multiprocessing.Queue(maxsize=4)
-
-    # event_vts_api_process_initialized = multiprocessing.Event()
-
-    vts_api_process = VTSAPIProcess(vts_api_queue)
-    vts_api_process.start()
-
-    while True:
-        user_input = input(("Press 1 to set test, "
-                            "2 to unset expression, "
-                            "3 to set Happy, "
-                            "4 to unset Happy, "
-                            "5 to clear, "
-                            "6 wrong hotkey name to test, "
-                            "0 to quit:\n"))
-        if user_input == '1':
-            expression = "test"
-            active = True
-        elif user_input == '2':
-            expression = "test"
-            active = False
-        elif user_input == '3':
-            expression = "Happy"
-            active = True
-        elif user_input == '4':
-            expression = "Happy"
-            active = False
-        elif user_input == '5':
-            msg_type = "HotkeyTriggerRequest"
-            data_dict = {
-                "hotkeyID": "Clear"
-            }
-            vts_api_task = VTSAPITask(msg_type, data_dict)
-            vts_api_queue.put(vts_api_task)
-            continue
-        elif user_input == '6':
-            msg_type = "HotkeyTriggerRequest"
-            data_dict = {
-                "hotkeyID": "WrongHotkeyName"
-            }
-            vts_api_task = VTSAPITask(msg_type, data_dict)
-            vts_api_queue.put(vts_api_task)
-            continue
-        elif user_input == '0':
-            vts_api_queue.put(None)
-            break
-        else:
-            continue
-        
-        msg_type = "ExpressionActivationRequest"
-        expression_file = f"{expression}.exp3.json"
-        expression_request_data = {
-            "expressionFile": expression_file,
-            "active": active
-        }
-
-        vts_api_task = VTSAPITask(msg_type, expression_request_data)
-
-        vts_api_queue.put(vts_api_task)
-    
-    vts_api_process.join()
