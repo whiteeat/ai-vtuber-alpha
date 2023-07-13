@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/.vscode/
+/vits/model/*.pth
+/token.txt
+/vts_api_test/token.txt
