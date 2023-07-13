@@ -16,7 +16,7 @@ class VTSAPIProcess(multiprocessing.Process):
         proc_name = self.name
         print(f"Initializing {proc_name}...")
 
-        plugin_name = "expression controller"
+        plugin_name = "Expression Controller"
         developer = "Rotten Work"
         authentication_token_path = "./token.txt"
 
@@ -42,7 +42,15 @@ class VTSAPIProcess(multiprocessing.Process):
             await myvts.request_authenticate_token()
             await myvts.write_token()
         
-        await myvts.request_authenticate()
+        success = await myvts.request_authenticate()
+
+        if not success:
+            print("Token file is invalid! request authentication token again!")
+            await myvts.request_authenticate_token()
+            await myvts.write_token()
+
+            success = await myvts.request_authenticate()
+            assert success
 
         while True:
             try:
@@ -137,7 +145,7 @@ if __name__ == "__main__":
 
     while True:
         user_input = input(("Press 1 to set test, "
-                            "2 to unset expression, "
+                            "2 to unset test, "
                             "3 to set Happy, "
                             "4 to unset Happy, "
                             "5 to clear, "

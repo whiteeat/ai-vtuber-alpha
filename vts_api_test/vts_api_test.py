@@ -2,7 +2,7 @@ import pyvts
 import asyncio
 
 async def main():
-    plugin_name = "expression controller"
+    plugin_name = "Expression Controller"
     developer = "Rotten Work"
     authentication_token_path = "./token.txt"
 

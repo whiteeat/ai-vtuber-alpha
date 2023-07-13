@@ -6,6 +6,8 @@ import multiprocessing
 
 import pyvts
 
+import logging
+
 class ExpressionHelper:
     # emotion_to_expression = {
     #     "愉快": "Happy",
@@ -52,7 +54,9 @@ class VTSAPIProcess(multiprocessing.Process):
         proc_name = self.name
         print(f"Initializing {proc_name}...")
 
-        plugin_name = "expression controller"
+        logging.getLogger("websockets").setLevel(logging.WARNING)
+
+        plugin_name = "Expression Controller"
         developer = "Rotten Work"
         authentication_token_path = "./token.txt"
 
@@ -78,7 +82,15 @@ class VTSAPIProcess(multiprocessing.Process):
             await myvts.request_authenticate_token()
             await myvts.write_token()
         
-        await myvts.request_authenticate()
+        success = await myvts.request_authenticate()
+
+        if not success:
+            print("Token file is invalid! request authentication token again!")
+            await myvts.request_authenticate_token()
+            await myvts.write_token()
+
+            success = await myvts.request_authenticate()
+            assert success
 
         while True:
             try:
