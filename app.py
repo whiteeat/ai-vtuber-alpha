@@ -298,6 +298,7 @@ class AudioPlayerProcess(multiprocessing.Process):
                 post_speaking_event = next_task.post_speaking_event
                 if post_speaking_event is not None:
                     if post_speaking_event.event_type == SpeakingEvent.SING:
+                        time.sleep(1.0) # a quick hack to delay continue to sing
                         self.sing_queue.put(post_speaking_event.msg)
                     elif post_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
                         expression_file = ExpressionHelper.emotion_to_expression_file(post_speaking_event.msg)
@@ -533,10 +534,10 @@ class ChatGPTProcess(multiprocessing.Process):
                             self.app_state.value = AppState.PRESING
                         continue
 
-                elif not self.greeting_queue.empty():
-                    print(f"{proc_name} is working...")
-                    print("Get a task from greeting_queue.")
-                    task = self.greeting_queue.get()
+                # elif not self.greeting_queue.empty():
+                #     print(f"{proc_name} is working...")
+                #     print("Get a task from greeting_queue.")
+                #     task = self.greeting_queue.get()
 
                 else:
                     time.sleep(1.0)
@@ -638,8 +639,8 @@ class ChatGPTProcess(multiprocessing.Process):
                 while not self.chat_queue.empty():
                     task = self.chat_queue.get()
 
-                while not self.greeting_queue.empty():
-                    task = self.greeting_queue.get()
+                # while not self.greeting_queue.empty():
+                #     task = self.greeting_queue.get()
 
                 while not self.thanks_queue.empty():
                     task = self.thanks_queue.get()
@@ -769,12 +770,13 @@ class ChatGPTProcess(multiprocessing.Process):
 
                     except Exception as e:
                         response_to_interuption_msg = f"十分感谢您的认可！要不要跟着小爷一起唱呢？"
-                        vits_task = VITSTask(response_to_interuption_msg, 
-                                            pre_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#打断唱歌"),
-                                            post_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
-                                            )
+                        if self.is_vits_enabled():
+                            vits_task = VITSTask(response_to_interuption_msg, 
+                                                pre_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#打断唱歌"),
+                                                post_speaking_event=SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
+                                                )
 
-                        self.vits_task_queue.put(vits_task)
+                            self.vits_task_queue.put(vits_task)
 
                 else:
                     time.sleep(1.0)
@@ -951,13 +953,13 @@ class LiveCommentProcess(multiprocessing.Process):
                             msg = f"主播好！我是{user_name}，我来了！"
                             print(f"[INTERACT_WORD] {msg}")
 
-                            if self.is_response_enabled():
-                                task = ChatTask(user_name, msg, channel)
+                            # if self.is_response_enabled():
+                                # task = ChatTask(user_name, msg, channel)
 
-                                if self.greeting_queue.full():
-                                    _ = self.greeting_queue.get()
+                                # if self.greeting_queue.full():
+                                #     _ = self.greeting_queue.get()
 
-                                self.greeting_queue.put(task)
+                                # self.greeting_queue.put(task)
 
                     # 关注
                     elif msg_type == 2:

@@ -278,7 +278,7 @@ class Display:
         self.song_list = song_list
         # self.screen_width = 620
         self.screen_width = 1024
-        self.screen_height = 720
+        self.screen_height = 360
         pygame.init()
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont('SimHei', 40)
@@ -316,7 +316,7 @@ class Display:
                 color = (0, 255, 127)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['name'], True, color)
+            text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['abbr'], True, color)
             ztx, zty, ztw, zth = text.get_rect()
             pos_rect = pygame.Rect(10, _y, ztw, zth)
             self.screen.blit(text, (pos_rect.x, pos_rect.y))
@@ -329,7 +329,7 @@ class Display:
                 color = (127, 255, 0)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(self.song_list.song_dicts[i]['name'], True, color)
+            text = self.font.render(self.song_list.song_dicts[i]['abbr'], True, color)
             self.screen.blit(text, (self.screen_width / 2, y))
             y += 25
 
@@ -554,5 +554,6 @@ if __name__ == '__main__':
                 break 
     else:
         print("无效命令！！！")
+        sing_queue.put(None)
 
     print("退出")
