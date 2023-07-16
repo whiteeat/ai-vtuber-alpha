@@ -472,6 +472,8 @@ class ChatGPTProcess(multiprocessing.Process):
                         if editor_name is not None and editor_name == '-':
                             editor_name = None
 
+                        # Maybe the code should behave like 
+                        # if Song ID doesn't exist, then the character should tell the audience that the Song ID does not exist
                         system_msg = SystemMessageManager_1.get_presing_sm(user_name, song_name, editor_name)
 
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
