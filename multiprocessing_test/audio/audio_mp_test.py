@@ -142,6 +142,80 @@ class SingingProcess_1(multiprocessing.Process):
 
         py_audio.terminate()
 
+class SingingProcess_2(multiprocessing.Process):
+
+    def run(self):
+        CHUNK = 1024
+        enable_write_junk = False
+
+        wf_vox = wave.open("vox.wav", 'rb')
+        wf_bgm = wave.open("bgm.wav", 'rb')
+
+        py_audio = pyaudio.PyAudio()
+
+        # Write vox data into virtual audio device to drive lip sync animation
+        if self.use_virtual_audio_device:
+            device_index = self.virtual_audio_output_device_index
+            stream_virtual = py_audio.open(format=py_audio.get_format_from_width(wf_vox.getsampwidth()),
+                            channels=wf_vox.getnchannels(),
+                            rate=wf_vox.getframerate(),
+                            output=True,
+                            output_device_index=device_index)
+        
+        stream_bgm = py_audio.open(format=py_audio.get_format_from_width(wf_vox.getsampwidth()),
+                channels=wf_vox.getnchannels(),
+                rate=wf_vox.getframerate(),
+                output=True)
+        
+        stream_vox = py_audio.open(format=py_audio.get_format_from_width(wf_vox.getsampwidth()),
+                channels=wf_vox.getnchannels(),
+                rate=wf_vox.getframerate(),
+                output=True)
+
+        GlobalState.speech_event = self.speech_event
+        print(f"""Process name: {multiprocessing.current_process().name}. 
+                Global event object: {GlobalState.speech_event}. Global event id: {id(GlobalState.speech_event)}""")
+
+        junk = None
+        init_junk = True
+        while True:
+            if self.event_exit.is_set():
+                break
+
+            data_vox = wf_vox.readframes(CHUNK)
+            data_bgm = wf_bgm.readframes(CHUNK)
+            size_vox = len(data_vox)
+            size_bgm = len(data_bgm)
+
+            if init_junk:
+                junk = bytes(size_vox)
+                init_junk = False
+
+            if size_bgm != 0:
+                stream_bgm.write(data_bgm)
+            if size_vox != 0:  
+                if not GlobalState.speech_event.is_set():
+                    stream_vox.write(data_vox)
+                    if self.use_virtual_audio_device:
+                        stream_virtual.write(data_vox)
+                else:
+                    if enable_write_junk:
+                        stream_vox.write(junk)
+
+            if size_bgm == 0 and size_vox == 0:
+                break
+
+            time.sleep(0)    
+
+        print("Singing ends.")
+
+        stream_vox.close()
+        stream_bgm.close()
+        wf_vox.close()
+        wf_bgm.close()
+
+        py_audio.terminate()
+
 
 class SpeechProcess(multiprocessing.Process):
 
@@ -267,6 +341,11 @@ def normalize_audio(audio_data):
     return normalized_data
 
 
+# https://stackoverflow.com/questions/434287/how-to-iterate-over-a-list-in-chunks
+def chunker(seq, size):
+    return [seq[pos:pos + size] for pos in range(0, len(seq), size)]
+
+
 class SpeechProcess_1(multiprocessing.Process):
 
     def run(self):
@@ -284,28 +363,44 @@ class SpeechProcess_1(multiprocessing.Process):
         else:
             data = audio.tobytes()
 
-        device_index = None
-
-        if self.use_virtual_audio_device:
-            device_index = self.virtual_audio_output_device_index
-
         py_audio = pyaudio.PyAudio()
         stream = py_audio.open(format=pyaudio.paFloat32,
                             channels=1,
                             rate=22050,
-                            output=True,
-                            output_device_index=device_index)
+                            output=True)
+        
+        if self.use_virtual_audio_device:
+            device_index = self.virtual_audio_output_device_index
+            stream_virtual = py_audio.open(format=pyaudio.paFloat32,
+                        channels=1,
+                        rate=22050,
+                        output=True,
+                        output_device_index=device_index)
+            
+        
+        NUM_FRAMES = 1024
+        BIT_DEPTH = 32
+        NUM_BYTES_PER_SAMPLE = BIT_DEPTH // 8
+        NUM_CHANNELS = 1
+        CHUNK_SIZE = NUM_FRAMES * NUM_BYTES_PER_SAMPLE * NUM_CHANNELS # Data chunk size in bytes
+
+        chunks = chunker(data, CHUNK_SIZE)
+        print(f"Number of chunks: {len(chunks)}")
         
         GlobalState.speech_event = self.speech_event
         print(f"""Process name: {multiprocessing.current_process().name}. 
-                Global event object: {GlobalState.speech_event}. Global event id: {id(GlobalState.speech_event)}""")
+            Global event object: {GlobalState.speech_event}. Global event id: {id(GlobalState.speech_event)}""")
 
         while True:
             if self.event_exit.is_set():
                 break
             
             if GlobalState.speech_event.is_set():
-                stream.write(data)
+                for chunk in chunks:
+                    stream.write(chunk)
+                    if self.use_virtual_audio_device:
+                        # Write speech data into virtual audio device to drive lip sync animation
+                        stream_virtual.write(chunk)
                 GlobalState.speech_event.clear()
             
             time.sleep(0)
@@ -326,7 +421,7 @@ if __name__ == '__main__':
     use_vits = True
 
     # singing_process = SingingProcess()
-    singing_process = SingingProcess_1()
+    singing_process = SingingProcess_2()
 
     if use_vits:
         speech_process = SpeechProcess_1()
