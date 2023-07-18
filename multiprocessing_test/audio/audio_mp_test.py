@@ -356,6 +356,7 @@ class SpeechProcess_1(multiprocessing.Process):
         vits_wrapper = VITSWrapper()
         audio = vits_wrapper.vits(text, 0, 2, 0.5, 0.5, 1.0)
         print(audio.shape)
+        print(audio.dtype)
         if use_norm:
             # https://stackoverflow.com/questions/70722435/does-ndarray-tobytes-create-a-copy-of-raw-data
             data = normalize_audio(audio).view(np.uint8) # No copy
