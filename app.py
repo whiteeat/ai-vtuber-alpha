@@ -169,6 +169,12 @@ class AudioTask:
 
 
 class AudioPlayerProcess(multiprocessing.Process):
+    NUM_FRAMES = 1024
+    BIT_DEPTH = 32
+    NUM_BYTES_PER_SAMPLE = BIT_DEPTH // 8
+    NUM_CHANNELS = 1
+    CHUNK_SIZE = NUM_FRAMES * NUM_BYTES_PER_SAMPLE * NUM_CHANNELS # Data chunk size in bytes
+
     def __init__(self, audio_task_queue, subtitle_task_queue, sing_queue, vts_api_queue, event_initalized):
         super().__init__()
         self.task_queue = audio_task_queue
@@ -177,7 +183,7 @@ class AudioPlayerProcess(multiprocessing.Process):
         self.vts_api_queue = vts_api_queue
         self.event_initalized = event_initalized
 
-        self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, False)
+        self.enable_audio_stream = multiprocessing.Value(ctypes.c_bool, True)
         self.enable_audio_stream_virtual = multiprocessing.Value(ctypes.c_bool, True)
 
         self.virtual_audio_devices_are_found = False  # Maybe incorrect, because __init__ is run in the main process
@@ -219,6 +225,10 @@ class AudioPlayerProcess(multiprocessing.Process):
             self.virtual_audio_devices_are_found = False
         else:
             self.virtual_audio_devices_are_found = True
+
+    # https://stackoverflow.com/questions/434287/how-to-iterate-over-a-list-in-chunks
+    def chunker(self, seq, size):
+        return [seq[pos:pos + size] for pos in range(0, len(seq), size)]
 
     def run(self):
         proc_name = self.name
@@ -288,12 +298,15 @@ class AudioPlayerProcess(multiprocessing.Process):
                     audio = normalize_audio(audio)
                     data = audio.view(np.uint8)
 
-                    if self.is_audio_stream_enabled():
-                        stream.write(data)
+                    # Write speech data into virtual audio device to drive lip sync animation
+                    chunks = self.chunker(data, self.CHUNK_SIZE)
+                    for chunk in chunks:
+                        if self.is_audio_stream_enabled():
+                            stream.write(chunk)
 
-                    if (self.is_audio_stream_virtual_enabled() and
-                            self.virtual_audio_devices_are_found):
-                        stream_virtual.write(data)
+                        if (self.is_audio_stream_virtual_enabled() and
+                                self.virtual_audio_devices_are_found):
+                            stream_virtual.write(chunk)
 
                 post_speaking_event = next_task.post_speaking_event
                 if post_speaking_event is not None:
