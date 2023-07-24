@@ -169,3 +169,4 @@ class VTSAPIProcess(multiprocessing.Process):
 
     def run(self):
         asyncio.run(self.main())
+        print(f"{self.name}: Exits")

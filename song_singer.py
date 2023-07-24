@@ -305,7 +305,8 @@ class Display:
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌爱你)", True, color)
+            text = self.font.render(f"发弹幕\"点歌+序号\"点歌（如:点歌3）", True, color)
+            # text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌爱你)", True, color)
             # text_rect = text.get_rect(center=(self.screen_width / 4, y))
             # self.screen.blit(text, text_rect)
             self.screen.blit(text, (10, y))
@@ -360,7 +361,7 @@ class Display:
         while self.is_running:  # T/F
             try:
                 y -= 2
-                if y < len(self.song_list.song_dicts) * -25:
+                if y < len(self.song_list.song_dicts) * -40:
                     y = self.pos_y
                 # self.screen.fill(color=(0, 127, 255))
                 self.screen.fill(color=(0, 0, 0))
