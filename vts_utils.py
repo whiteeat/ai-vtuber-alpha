@@ -9,6 +9,8 @@ import pyvts
 import logging
 
 class ExpressionHelper:
+
+    #https://stackoverflow.com/questions/6388187/what-is-the-proper-way-to-format-a-multi-line-dict-in-python
     # emotion_to_expression = {
     #     "愉快": "Happy",
     #     "伤心": "Sad",
@@ -167,3 +169,4 @@ class VTSAPIProcess(multiprocessing.Process):
 
     def run(self):
         asyncio.run(self.main())
+        print(f"{self.name}: Exits")

@@ -117,38 +117,47 @@ class SongPlayer:
 
             self.playing = True
 
-            vox_wave = wave.open(self.song_dict['vox'], 'rb')
             bgm_wave = wave.open(self.song_dict['bgm'], 'rb')
-            vox_stream = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
+            vox_wave = wave.open(self.song_dict['vox'], 'rb')
+            stream_bgm = self.pau.open(format=self.pau.get_format_from_width(bgm_wave.getsampwidth()),
+                            channels=bgm_wave.getnchannels(),
+                            rate=bgm_wave.getframerate(),
+                            output=True)
+
+            stream_vox = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
                                        channels=vox_wave.getnchannels(),
                                        rate=vox_wave.getframerate(),
-                                       output=True,  # 测试时耳机播
-                                       output_device_index=self.virtual_audio_output_device_index)
-            bgm_stream = self.pau.open(format=self.pau.get_format_from_width(bgm_wave.getsampwidth()),
-                                       channels=bgm_wave.getnchannels(),
-                                       rate=bgm_wave.getframerate(),
                                        output=True)
+        
+            stream_virtual = self.pau.open(format=self.pau.get_format_from_width(vox_wave.getsampwidth()),
+                        channels=vox_wave.getnchannels(),
+                        rate=vox_wave.getframerate(),
+                        output=True,  # 测试时耳机播
+                        output_device_index=self.virtual_audio_output_device_index)
             
             junk = None
             init_junk = True
             while self.playing:
                 if not self.paused:
-                    vox_data = vox_wave.readframes(self.CHUNK)
                     bgm_data = bgm_wave.readframes(self.CHUNK)
-                    vox_size = len(vox_data)
+                    vox_data = vox_wave.readframes(self.CHUNK)
                     bgm_size = len(bgm_data)
-
+                    vox_size = len(vox_data)
+                    
                     if init_junk:
                         junk = bytes(vox_size)
                         init_junk = False
 
+                    if bgm_size != 0:
+                        stream_bgm.write(bgm_data)
                     if vox_size != 0:
                         if self.interrupted:
-                            vox_stream.write(junk)
+                            stream_vox.write(junk)
                         else:
-                            vox_stream.write(vox_data)
-                    if bgm_size != 0:
-                        bgm_stream.write(bgm_data)
+                            stream_vox.write(vox_data)
+                            # Write vox data into virtual audio device to drive lip sync animation
+                            stream_virtual.write(vox_data)
+
                     if vox_size == 0 and bgm_size == 0:
                         break
                 else:
@@ -156,8 +165,8 @@ class SongPlayer:
 
             vox_wave.close()
             bgm_wave.close()
-            vox_stream.close()
-            bgm_stream.close()
+            stream_vox.close()
+            stream_bgm.close()
             self.playing = False
             self.song_list.cur_song_index = -1
 
@@ -291,23 +300,18 @@ class Display:
 
     def draw_cur_song_name(self):
         y = 30
-        # pygame.draw.rect(self.screen, (0, 127, 255), (0, 0, 620, 40), width=0)
         pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, 620, 100), width=0)
         cur_show_index = self.song_list.cur_song_index
         if -1 == cur_show_index:
             color = (255, 255, 0)
-            text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌爱你)", True, color)
-            # text_rect = text.get_rect(center=(self.screen_width / 4, y))
-            # self.screen.blit(text, text_rect)
+            text = self.font.render(f"发弹幕\"点歌+序号\"点歌（如:点歌3）", True, color)
+            # text = self.font.render(f"弹幕'点歌X'(如:点歌3/点歌爱你)", True, color)
             self.screen.blit(text, (10, y))
         else:
             color = (0, 255, 255)
             current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
-                           self.song_list.song_dicts[cur_show_index]['artist'] + ' ' + \
                            self.song_list.song_dicts[cur_show_index]['editor']
             text = self.title_font.render(f"★" + current_song + f"★", True, color)
-            # text_rect = text.get_rect(center=(self.screen_width / 4, y))
-            # self.screen.blit(text, text_rect)
             self.screen.blit(text, (10, y))
 
     def draw_vox_file_list(self, _y):
@@ -351,9 +355,8 @@ class Display:
         while self.is_running:  # T/F
             try:
                 y -= 2
-                if y < len(self.song_list.song_dicts) * -25:
+                if y < len(self.song_list.song_dicts) * -40:
                     y = self.pos_y
-                # self.screen.fill(color=(0, 127, 255))
                 self.screen.fill(color=(0, 0, 0))
                 self.draw_vox_file_list(y)
                 # self.draw_bgm_file_list()
