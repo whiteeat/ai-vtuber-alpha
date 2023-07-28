@@ -15,7 +15,7 @@ class SubtitleBar():
         self.window.title('Subtitle')
         transparentcolor = "black"
         self.window.configure(bg=transparentcolor)
-        # self.window.overrideredirect(True)
+        # self.window.overrideredirect(True) # Borderless window
         # self.window.attributes('-topmost', True)
         self.window.geometry("1000x128+512+512")
         self.window.bind('<Button-1>', self.SaveLastClickPos)
@@ -26,9 +26,9 @@ class SubtitleBar():
         self.text = tk.Label(self.window, wraplength=1000, font=("Noto Sans SC", 32, "bold"), fg="#ffffff", bg=transparentcolor, text="这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕这是字幕")
         self.text.place(relx=0.5, rely=0.5, anchor='center')
 
-        self.grip = ttk.Sizegrip(self.window)
-        self.grip.place(relx=1.0, rely=1.0, anchor="se")
-        self.grip.bind("<B1-Motion>", self.OnMotion)
+        # self.grip = ttk.Sizegrip(self.window)
+        # self.grip.place(relx=1.0, rely=1.0, anchor="se")
+        # self.grip.bind("<B1-Motion>", self.OnMotion)
 
         # window.attributes('-alpha', 0.5)
         # self.window.wm_attributes("-transparentcolor", "black")

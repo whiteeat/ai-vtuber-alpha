@@ -114,7 +114,8 @@ class ResponseHandler(blivedm.BaseHandler):
         print(f"[LIKE] {user_name}")
 
         channel = 'default'
-        msg = f"我是{user_name}，刚刚在你的直播间点了赞哦！"
+        # msg = f"我是{user_name}，刚刚在你的直播间点了赞哦！"
+        msg = f"我是{user_name}，给你点赞！"
         if self.enable_response.value:
             task = ChatTask(user_name, msg, channel)
 

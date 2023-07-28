@@ -3,11 +3,6 @@ import sys
 import multiprocessing
 import ctypes
 
-import asyncio
-import zlib
-from aiowebsocket.converses import AioWebSocket
-import json
-
 import time
 import numpy as np
 
@@ -355,10 +350,9 @@ def should_cut_text(text, min, punctuations_min, threshold, punctuations_thresho
 
 
 class ChatGPTProcess(multiprocessing.Process):
-    def __init__(self, access_token, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
+    def __init__(self, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
                  app_state, event_initialized):
         super().__init__()
-        self.access_token = access_token
         self.api_key = api_key
 
         self.greeting_queue = greeting_queue
@@ -397,21 +391,10 @@ class ChatGPTProcess(multiprocessing.Process):
 
         song_list = song_singer.SongList()
 
-        use_access_token = False
-        use_api_key = False
-        if self.access_token is not None:
-            chatbot = ChatbotV1(config={'access_token': self.access_token})
-            use_access_token = True
-            print("Use access token")
-        elif self.api_key is not None:
-            # engine_str = "gpt-3.5-turbo-0301"
-            # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
-            chatbot = ChatbotV3(api_key=self.api_key, max_tokens=3000, temperature=0.7,
-                                system_prompt=preset_text_short)
-            use_api_key = True
-            print("Use API key")
-
-        assert use_access_token or use_api_key, "Error: use_access_token and use_api_key are both False!"
+        # engine_str = "gpt-3.5-turbo-0301"
+        # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
+        chatbot = ChatbotV3(api_key=self.api_key, max_tokens=3000, temperature=0.7,
+                            system_prompt=preset_text_short)
 
         punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
         punctuations_to_split_text_longer = {'。', '！', '？', '：', '\n', '，'}
@@ -453,14 +436,8 @@ class ChatGPTProcess(multiprocessing.Process):
                         try:
                             print("Reset ChatGPT")
                             print(preset_text_short)
-                            if use_api_key:
-                                chatbot.conversation.clear()
-                                chatbot.reset(convo_id='default', system_prompt=preset_text_short)
-                            elif use_access_token:
-                                # Outdated
-                                for data in chatbot.ask(preset_text_short):
-                                    response = data["message"]
-                            # print(response)
+                            chatbot.conversation.clear()
+                            chatbot.reset(convo_id='default', system_prompt=preset_text_short)
                         except Exception as e:
                             print(e)
                             print("Reset fail!")
@@ -533,6 +510,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 self.vits_task_queue.put(vits_task)
 
                         except Exception as e:
+                            print(e)
                             if song_dict is not None:
                                 if editor_name is not None:
                                     response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_abbr}，感谢{editor_name}大佬教我唱这首歌。"
@@ -561,9 +539,8 @@ class ChatGPTProcess(multiprocessing.Process):
                     time.sleep(1.0)
                     continue
 
-                # To tell the interpreter that the task must be the type ChatTask
-                # assert task is not None
-                # if task is not None:
+                assert task is not None
+                
                 user_name = task.user_name
                 msg = task.message
                 channel = task.channel
@@ -579,7 +556,7 @@ class ChatGPTProcess(multiprocessing.Process):
                         if channel in chatbot.conversation:
                             if len(chatbot.conversation[channel]) >= 9:
                                 chatbot.reset(convo_id=channel)
-                    else:
+                    elif channel == 'chat':
                         if (channel not in chatbot.conversation or 
                             len(chatbot.conversation[channel]) >= 9):
                             # system_msg = system_msg_updater.get_system_message()
@@ -611,18 +588,18 @@ class ChatGPTProcess(multiprocessing.Process):
                                     # time.sleep(1.0) # Simulate speech pause
                                     repeat_user_message = False
 
-                                    if is_first_sentence:
-                                        emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
-                                        print(f"#{line}#")
-                                        vits_task = VITSTask(line.strip())
-                                        if emotion in ExpressionHelper.emotion_to_expression:
-                                            vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
-                                        is_first_sentence = False
-                                    else:
-                                        vits_task = VITSTask(new_sentence.strip())
+                                if is_first_sentence:
+                                    emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
+                                    print(f"#{line}#")
+                                    vits_task = VITSTask(line.strip())
+                                    if emotion in ExpressionHelper.emotion_to_expression:
+                                        vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
+                                    is_first_sentence = False
+                                else:
+                                    vits_task = VITSTask(new_sentence.strip())
 
-                                    self.vits_task_queue.put(vits_task)
-                                    new_sentence = ""
+                                self.vits_task_queue.put(vits_task)
+                                new_sentence = ""
 
                     if len(new_sentence) > 0:
                         if self.is_vits_enabled():
@@ -655,13 +632,13 @@ class ChatGPTProcess(multiprocessing.Process):
             elif self.app_state.value == AppState.PRESING:
                 # Clear all queues
                 while not self.chat_queue.empty():
-                    task = self.chat_queue.get()
+                    _ = self.chat_queue.get()
 
                 # while not self.greeting_queue.empty():
-                #     task = self.greeting_queue.get()
+                    _ = self.greeting_queue.get()
 
                 while not self.thanks_queue.empty():
-                    task = self.thanks_queue.get()
+                    _ = self.thanks_queue.get()
 
                 cmd_msg = self.cmd_queue.get()
                 if cmd_msg == "#唱歌开始":
@@ -719,10 +696,11 @@ class ChatGPTProcess(multiprocessing.Process):
 
                             vits_task = VITSTask(post_sing_line)
                             self.vits_task_queue.put(vits_task)
-
-                        self.app_state.value = AppState.CHAT
-                    elif cmd_msg == "#测试打断":
-                        test_interrupted_line = "有什么话想和我说吗？没事我继续唱啦~"
+                        finally:
+                            self.app_state.value = AppState.CHAT
+                    elif cmd_msg == "#一键三连":
+                        # test_interrupted_line = "有什么话想和我说吗？没事我继续唱啦~"
+                        test_interrupted_line = "如果你喜欢我的歌声，请记得一定要，一键三连哦~"
                         pre_event = SpeakingEvent(SpeakingEvent.SING, "#打断唱歌")
                         post_event = SpeakingEvent(SpeakingEvent.SING, "#继续唱歌")
                         vits_task = VITSTask(test_interrupted_line, 
@@ -868,7 +846,7 @@ if __name__ == '__main__':
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
     api_key = ""
-    chat_gpt_process = ChatGPTProcess(None, api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
+    chat_gpt_process = ChatGPTProcess(api_key, greeting_queue, chat_queue, thanks_queue, cmd_queue, vits_task_queue,
                                       app_state, event_chat_gpt_process_initialized)
     chat_gpt_process.start()
 
@@ -965,22 +943,41 @@ if __name__ == '__main__':
             if user_input == "#唱歌结束":
                 # cmd_queue.put("#唱歌结束")
                 sing_queue.put("666切歌")
-            elif user_input == "#测试打断":
-                cmd_queue.put("#测试打断")
+            elif user_input == "#一键三连":
+                cmd_queue.put("#一键三连")
+            elif user_input == "#点赞":
+                msg = f"给你点赞！"
+                task = ChatTask(None, msg, 'default')
+                thanks_queue.put(task)
 
     event_danmaku_process_stop.set()
+    # Clear all queues
+    clear_queue(chat_queue)
     chat_queue.put(None)
+    clear_queue(vits_task_queue)
     vits_task_queue.put(None)
+    clear_queue(audio_task_queue)
     audio_task_queue.put(None)
+    clear_queue(subtitle_task_queue)
     subtitle_task_queue.put(None)
+    clear_queue(sing_queue)
     sing_queue.put(None)
+    clear_queue(cmd_queue)
     cmd_queue.put(None)
+    clear_queue(vts_api_queue)
     vts_api_queue.put(None)
 
     vits_process.join()
+    print("vits_process is joined")
     chat_gpt_process.join()
+    print("chat_gpt_process is joined")
     damaku_process.join()
+    print("damaku_process is joined")
     song_singer_process.join()
+    print("song_singer_process is joined")
     audio_player_process.join()
+    print("audio_player_process is joined")
     subtitle_bar_process.join()
+    print("subtitle_bar_process is joined")
     vts_api_process.join()
+    print("vts_api_process is joined")

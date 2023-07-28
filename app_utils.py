@@ -8,3 +8,7 @@ class ChatTask:
         self.user_name = user_name
         self.message = message
         self.channel = channel
+
+def clear_queue(queue):
+    while not queue.empty():
+        _ = queue.get() 
