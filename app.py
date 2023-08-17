@@ -108,7 +108,6 @@ class VITSProcess(multiprocessing.Process):
             if next_task is None:
                 # Poison pill means shutdown
                 print(f"{proc_name}: Exiting")
-                self.task_queue.task_done()
                 break
             try:
                 print(f"{proc_name} is working...")
@@ -128,8 +127,8 @@ class VITSProcess(multiprocessing.Process):
             except Exception as e:
                 print(e)
                 # print(f"Errors ocurrs in the process {proc_name}")
-            finally:
-                self.task_queue.task_done()
+
+        sys.exit() # Manually and forcibly exit the process
 
 
 class VITSTask:
@@ -635,7 +634,7 @@ class ChatGPTProcess(multiprocessing.Process):
                     _ = self.chat_queue.get()
 
                 # while not self.greeting_queue.empty():
-                    _ = self.greeting_queue.get()
+                    # _ = self.greeting_queue.get()
 
                 while not self.thanks_queue.empty():
                     _ = self.thanks_queue.get()
@@ -765,6 +764,7 @@ class ChatGPTProcess(multiprocessing.Process):
                             self.vits_task_queue.put(vits_task)
 
                     except Exception as e:
+                        print(e)
                         response_to_interuption_msg = f"十分感谢您的认可！要不要跟着小爷一起唱呢？"
                         if self.is_vits_enabled():
                             vits_task = VITSTask(response_to_interuption_msg, 
@@ -841,7 +841,7 @@ if __name__ == '__main__':
     song_singer_process = song_singer.SongSingerProcess(sing_queue, cmd_queue, event_song_singer_process_initialized)
     song_singer_process.start()
 
-    vits_task_queue = multiprocessing.JoinableQueue()
+    vits_task_queue = multiprocessing.Queue()
 
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
@@ -954,21 +954,28 @@ if __name__ == '__main__':
     # Clear all queues
     clear_queue(chat_queue)
     chat_queue.put(None)
+    print("The chat_queue is cleared")
     clear_queue(vits_task_queue)
     vits_task_queue.put(None)
+    print("The vits_task_queue is cleared")
     clear_queue(audio_task_queue)
     audio_task_queue.put(None)
+    print("The audio_task_queue is cleared")
     clear_queue(subtitle_task_queue)
     subtitle_task_queue.put(None)
+    print("The subtitle_task_queue is cleared")
     clear_queue(sing_queue)
     sing_queue.put(None)
+    print("The sing_queue is cleared")
     clear_queue(cmd_queue)
     cmd_queue.put(None)
+    print("The cmd_queue is cleared")
     clear_queue(vts_api_queue)
     vts_api_queue.put(None)
+    print("The vts_api_queue is cleared")
 
-    vits_process.join()
-    print("vits_process is joined")
+    print("All queues are cleared")
+
     chat_gpt_process.join()
     print("chat_gpt_process is joined")
     damaku_process.join()
@@ -981,3 +988,5 @@ if __name__ == '__main__':
     print("subtitle_bar_process is joined")
     vts_api_process.join()
     print("vts_api_process is joined")
+    vits_process.join()
+    print("vits_process is joined")

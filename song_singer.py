@@ -309,9 +309,13 @@ class Display:
             self.screen.blit(text, (10, y))
         else:
             color = (0, 255, 255)
-            current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
-                           self.song_list.song_dicts[cur_show_index]['editor']
-            text = self.title_font.render(f"★" + current_song + f"★", True, color)
+            abbr = self.song_list.song_dicts[cur_show_index]['abbr']
+            editor = self.song_list.song_dicts[cur_show_index]['editor']
+            if editor == '_':
+                title = abbr
+            else:
+                title = abbr + ' ' + editor
+            text = self.title_font.render(f"★" + title + f"★", True, color)
             self.screen.blit(text, (10, y))
 
     def draw_vox_file_list(self, _y):
