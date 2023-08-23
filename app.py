@@ -547,25 +547,28 @@ class ChatGPTProcess(multiprocessing.Process):
                 try:
                     repeat_user_message = True
                     repeat_message = None
+                    c_id = None
                     if channel == 'default':
+                        c_id = channel
                         repeat_user_message = False
                         if channel in chatbot.conversation:
-                            if len(chatbot.conversation[channel]) >= 9:
-                                chatbot.reset(convo_id=channel)
+                            if len(chatbot.conversation[c_id]) >= 9:
+                                chatbot.reset(convo_id=c_id)
                     elif channel == 'chat':
+                        c_id = user_name
                         if (channel not in chatbot.conversation or 
-                            len(chatbot.conversation[channel]) >= 9):
+                            len(chatbot.conversation[c_id]) >= 9):
                             # system_msg = system_msg_updater.get_system_message()
                             system_msg = system_message_manager.systetm_message
-                            chatbot.reset(channel, system_msg)
+                            chatbot.reset(c_id, system_msg)
 
                         repeat_message = f"{user_name}说：“{msg}”"
                         # prompt_msg = f"（{user_name}对你说：)“{msg}”"
-                        prompt_msg = f"我是{user_name}，{msg}"
+                        prompt_msg = f"我的网名是“{user_name}”，{msg}"
 
                     new_sentence = ""
                     is_first_sentence = True
-                    for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=channel):
+                    for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=c_id):
                         print(data, end='|', flush=True)
                         
                         new_sentence += data
@@ -587,6 +590,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 if is_first_sentence:
                                     emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
                                     print(f"#{line}#")
+                                    print(f"emotion: {emotion}")
                                     vits_task = VITSTask(line.strip())
                                     if emotion in ExpressionHelper.emotion_to_expression:
                                         vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
