@@ -11,13 +11,15 @@ import logging
 class ExpressionHelper:
 
     #https://stackoverflow.com/questions/6388187/what-is-the-proper-way-to-format-a-multi-line-dict-in-python
-    # emotion_to_expression = {
-    #     "愉快": "Happy",
-    #     "伤心": "Sad",
-    #     "生气": "Angry",
-    #     "平静": "neutral"
-    # }
-    emotion_to_expression = {}
+    emotion_to_expression = {
+        "非常开心": "eyesHappy",
+        "愉快": "eyesHappy",
+        # "伤心": "Sad",
+        # "生气": "Angry",
+        # "平静": "neutral"
+    }
+
+    # emotion_to_expression = {}
 
     def get_emotion_and_line(response):
         pattern = r'^\[(.*?)\]'
@@ -38,6 +40,26 @@ class ExpressionHelper:
         else:
             return None
         
+    def create_expression_data_dict(emotion):
+        file_name = ExpressionHelper.emotion_to_expression_file(emotion)
+        data_dict = None
+        if file_name is not None:
+            data_dict = ExpressionHelper.create_expression_data_dict_from_file_name(file_name)
+        
+        return data_dict
+
+    def create_expression_data_dict_from_file_name(file_name):
+        data_dict = {
+            "expressionFile": file_name,
+            "active": True
+        }
+        return data_dict
+    
+    def create_hotkey_data_dict(hotkey_id):
+        data_dict = {
+            "hotkeyID": hotkey_id
+        }
+        return data_dict
 
 class VTSAPITask:
     def __init__(self, msg_type, data, request_id=None):
@@ -97,7 +119,7 @@ class VTSAPIProcess(multiprocessing.Process):
         while True:
             try:
                 # vts_api_task = self.vts_api_queue.get_nowait()
-                vts_api_task = self.vts_api_queue.get(block=True, timeout=10)
+                vts_api_task = self.vts_api_queue.get(block=True, timeout=5)
                 if vts_api_task is None:
                     # Poison pill means shutdown
                     print(f"{proc_name}: Exiting")

@@ -264,21 +264,15 @@ class AudioPlayerProcess(multiprocessing.Process):
                     if pre_speaking_event.event_type == SpeakingEvent.SING:
                         self.sing_queue.put(pre_speaking_event.msg)
                     elif pre_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
-                        expression_file = ExpressionHelper.emotion_to_expression_file(pre_speaking_event.msg)
-                        if expression_file is not None:
+                        data_dict = ExpressionHelper.create_expression_data_dict(pre_speaking_event.msg)
+                        if data_dict != None:
                             msg_type = "ExpressionActivationRequest"
-                            data_dict = {
-                                "expressionFile": expression_file,
-                                "active": True
-                            }
 
                             vts_api_task = VTSAPITask(msg_type, data_dict)
                             self.vts_api_queue.put(vts_api_task)
                     elif pre_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
                         msg_type = "HotkeyTriggerRequest"
-                        data_dict = {
-                            "hotkeyID": pre_speaking_event.msg
-                        }
+                        data_dict = ExpressionHelper.create_hotkey_data_dict(pre_speaking_event.msg)
 
                         vts_api_task = VTSAPITask(msg_type, data_dict)
                         self.vts_api_queue.put(vts_api_task)
@@ -309,21 +303,15 @@ class AudioPlayerProcess(multiprocessing.Process):
                         time.sleep(1.0) # a quick hack to delay continue to sing
                         self.sing_queue.put(post_speaking_event.msg)
                     elif post_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
-                        expression_file = ExpressionHelper.emotion_to_expression_file(post_speaking_event.msg)
-                        if expression_file is not None:
+                        data_dict = ExpressionHelper.create_expression_data_dict(post_speaking_event.msg)
+                        if data_dict != None:
                             msg_type = "ExpressionActivationRequest"
-                            data_dict = {
-                                "expressionFile": expression_file,
-                                "active": True
-                            }
 
                             vts_api_task = VTSAPITask(msg_type, data_dict)
                             self.vts_api_queue.put(vts_api_task)
                     elif post_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
                         msg_type = "HotkeyTriggerRequest"
-                        data_dict = {
-                            "hotkeyID": post_speaking_event.msg
-                        }
+                        data_dict = ExpressionHelper.create_hotkey_data_dict(post_speaking_event.msg)
 
                         vts_api_task = VTSAPITask(msg_type, data_dict)
                         self.vts_api_queue.put(vts_api_task)
