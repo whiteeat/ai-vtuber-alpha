@@ -11,7 +11,6 @@ import pyaudio
 from torch import no_grad, LongTensor
 from torch import device as torch_device
 
-from revChatGPT.V1 import Chatbot as ChatbotV1
 from revChatGPT.V3 import Chatbot as ChatbotV3
 
 sys.path.append("vits")
@@ -382,6 +381,8 @@ class ChatGPTProcess(multiprocessing.Process):
         # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
         chatbot = ChatbotV3(api_key=self.api_key, max_tokens=3000, temperature=0.7,
                             system_prompt=preset_text_short)
+        
+        chatbot.timeout = 30.0
 
         punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
         punctuations_to_split_text_longer = {'。', '！', '？', '：', '\n', '，'}
@@ -620,7 +621,8 @@ class ChatGPTProcess(multiprocessing.Process):
                     print(e)
                     if channel == 'chat':
                         if self.is_vits_enabled():
-                            text = "不好意思，刚才我走神了，请问你刚才说什么?"
+                            # text = "不好意思，刚才我走神了，请问你刚才说什么?"
+                            text = "牡蛎~刚才我又骨折了！"
                             task = VITSTask(text)
                             self.vits_task_queue.put(task)
 
@@ -954,8 +956,7 @@ if __name__ == '__main__':
                 chat_queue.put(chat_task)
         elif app_state.value != AppState.CHAT:
             if user_input == "#唱歌结束":
-                # cmd_queue.put("#唱歌结束")
-                sing_queue.put("666切歌")
+                sing_queue.put("#切歌")
             elif user_input == "#一键三连":
                 cmd_queue.put("#一键三连")
             elif user_input == "#点赞":
