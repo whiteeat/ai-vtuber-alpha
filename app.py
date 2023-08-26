@@ -583,6 +583,7 @@ class ChatGPTProcess(multiprocessing.Process):
                             if should_cut:
                                 if repeat_user_message:
                                     vits_task = VITSTask(repeat_message.strip())
+                                    vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.TRIGGER_HOTKEY, "MoveEars")
                                     self.vits_task_queue.put(vits_task)
                                     # time.sleep(1.0) # Simulate speech pause
                                     repeat_user_message = False
