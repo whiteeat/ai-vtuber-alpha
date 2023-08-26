@@ -11,7 +11,6 @@ import pyaudio
 from torch import no_grad, LongTensor
 from torch import device as torch_device
 
-from revChatGPT.V1 import Chatbot as ChatbotV1
 from revChatGPT.V3 import Chatbot as ChatbotV3
 
 sys.path.append("vits")
@@ -108,7 +107,6 @@ class VITSProcess(multiprocessing.Process):
             if next_task is None:
                 # Poison pill means shutdown
                 print(f"{proc_name}: Exiting")
-                self.task_queue.task_done()
                 break
             try:
                 print(f"{proc_name} is working...")
@@ -128,8 +126,8 @@ class VITSProcess(multiprocessing.Process):
             except Exception as e:
                 print(e)
                 # print(f"Errors ocurrs in the process {proc_name}")
-            finally:
-                self.task_queue.task_done()
+
+        sys.exit() # Manually and forcibly exit the process
 
 
 class VITSTask:
@@ -265,21 +263,15 @@ class AudioPlayerProcess(multiprocessing.Process):
                     if pre_speaking_event.event_type == SpeakingEvent.SING:
                         self.sing_queue.put(pre_speaking_event.msg)
                     elif pre_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
-                        expression_file = ExpressionHelper.emotion_to_expression_file(pre_speaking_event.msg)
-                        if expression_file is not None:
+                        data_dict = ExpressionHelper.create_expression_data_dict(pre_speaking_event.msg)
+                        if data_dict != None:
                             msg_type = "ExpressionActivationRequest"
-                            data_dict = {
-                                "expressionFile": expression_file,
-                                "active": True
-                            }
 
                             vts_api_task = VTSAPITask(msg_type, data_dict)
                             self.vts_api_queue.put(vts_api_task)
                     elif pre_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
                         msg_type = "HotkeyTriggerRequest"
-                        data_dict = {
-                            "hotkeyID": pre_speaking_event.msg
-                        }
+                        data_dict = ExpressionHelper.create_hotkey_data_dict(pre_speaking_event.msg)
 
                         vts_api_task = VTSAPITask(msg_type, data_dict)
                         self.vts_api_queue.put(vts_api_task)
@@ -310,21 +302,15 @@ class AudioPlayerProcess(multiprocessing.Process):
                         time.sleep(1.0) # a quick hack to delay continue to sing
                         self.sing_queue.put(post_speaking_event.msg)
                     elif post_speaking_event.event_type == SpeakingEvent.SET_EXPRESSION:
-                        expression_file = ExpressionHelper.emotion_to_expression_file(post_speaking_event.msg)
-                        if expression_file is not None:
+                        data_dict = ExpressionHelper.create_expression_data_dict(post_speaking_event.msg)
+                        if data_dict != None:
                             msg_type = "ExpressionActivationRequest"
-                            data_dict = {
-                                "expressionFile": expression_file,
-                                "active": True
-                            }
 
                             vts_api_task = VTSAPITask(msg_type, data_dict)
                             self.vts_api_queue.put(vts_api_task)
                     elif post_speaking_event.event_type == SpeakingEvent.TRIGGER_HOTKEY:
                         msg_type = "HotkeyTriggerRequest"
-                        data_dict = {
-                            "hotkeyID": post_speaking_event.msg
-                        }
+                        data_dict = ExpressionHelper.create_hotkey_data_dict(post_speaking_event.msg)
 
                         vts_api_task = VTSAPITask(msg_type, data_dict)
                         self.vts_api_queue.put(vts_api_task)
@@ -395,6 +381,8 @@ class ChatGPTProcess(multiprocessing.Process):
         # chatbot = ChatbotV3(api_key=self.api_key, engine=engine_str, temperature=0.7, system_prompt=preset_text)
         chatbot = ChatbotV3(api_key=self.api_key, max_tokens=3000, temperature=0.7,
                             system_prompt=preset_text_short)
+        
+        chatbot.timeout = 30.0
 
         punctuations_to_split_text = {'。', '！', '？', '：', '\n'}
         punctuations_to_split_text_longer = {'。', '！', '？', '：', '\n', '，'}
@@ -457,17 +445,22 @@ class ChatGPTProcess(multiprocessing.Process):
                         editor_name = None
                         song_name = None
                         song_abbr = None
+                        id = None
                         if song_dict is not None:
                             song_name = song_dict['name']
                             song_abbr = song_dict['abbr']
                             editor_name = song_dict['editor']
+                            id = song_dict['id']
 
                         if editor_name is not None and editor_name == '_':
                             editor_name = None
 
                         # Maybe the code should behave like 
                         # if Song ID doesn't exist, then the character should tell the audience that the Song ID does not exist
-                        system_msg = SystemMessageManager_1.get_presing_sm(user_name, song_abbr, editor_name)
+                        if id is not None and id == 666:
+                            system_msg = SystemMessageManager_1.get_presing_special_sm(user_name)
+                        else:
+                            system_msg = SystemMessageManager_1.get_presing_sm(user_name, song_abbr, editor_name)
 
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
 
@@ -511,13 +504,16 @@ class ChatGPTProcess(multiprocessing.Process):
 
                         except Exception as e:
                             print(e)
-                            if song_dict is not None:
-                                if editor_name is not None:
-                                    response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_abbr}，感谢{editor_name}大佬教我唱这首歌。"
+                            if id != 666:
+                                if song_dict is not None:
+                                    if editor_name is not None:
+                                        response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_abbr}，感谢{editor_name}大佬教我唱这首歌。"
+                                    else:
+                                        response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_abbr}。"
                                 else:
-                                    response_to_song_request_msg = f"好的，“{user_name}”同学，下面我将给大家献唱一首{song_abbr}。"
+                                    response_to_song_request_msg = f"对不起，{user_name}同学，我不会唱你点的这首歌。"
                             else:
-                                response_to_song_request_msg = f"对不起，{user_name}同学，我不会唱你点的这首歌。"
+                                response_to_song_request_msg = f"“{user_name}”同学，小爷这下可是真的怒了！"
                             
                             vits_task = VITSTask(response_to_song_request_msg)
                             
@@ -551,25 +547,28 @@ class ChatGPTProcess(multiprocessing.Process):
                 try:
                     repeat_user_message = True
                     repeat_message = None
+                    c_id = None
                     if channel == 'default':
+                        c_id = channel
                         repeat_user_message = False
                         if channel in chatbot.conversation:
-                            if len(chatbot.conversation[channel]) >= 9:
-                                chatbot.reset(convo_id=channel)
+                            if len(chatbot.conversation[c_id]) >= 9:
+                                chatbot.reset(convo_id=c_id)
                     elif channel == 'chat':
+                        c_id = user_name
                         if (channel not in chatbot.conversation or 
-                            len(chatbot.conversation[channel]) >= 9):
+                            len(chatbot.conversation[c_id]) >= 9):
                             # system_msg = system_msg_updater.get_system_message()
                             system_msg = system_message_manager.systetm_message
-                            chatbot.reset(channel, system_msg)
+                            chatbot.reset(c_id, system_msg)
 
                         repeat_message = f"{user_name}说：“{msg}”"
                         # prompt_msg = f"（{user_name}对你说：)“{msg}”"
-                        prompt_msg = f"我是{user_name}，{msg}"
+                        prompt_msg = f"我的网名是“{user_name}”，{msg}"
 
                     new_sentence = ""
                     is_first_sentence = True
-                    for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=channel):
+                    for data in chatbot.ask_stream(prompt=prompt_msg, convo_id=c_id):
                         print(data, end='|', flush=True)
                         
                         new_sentence += data
@@ -584,6 +583,7 @@ class ChatGPTProcess(multiprocessing.Process):
                             if should_cut:
                                 if repeat_user_message:
                                     vits_task = VITSTask(repeat_message.strip())
+                                    vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.TRIGGER_HOTKEY, "MoveEars")
                                     self.vits_task_queue.put(vits_task)
                                     # time.sleep(1.0) # Simulate speech pause
                                     repeat_user_message = False
@@ -591,6 +591,7 @@ class ChatGPTProcess(multiprocessing.Process):
                                 if is_first_sentence:
                                     emotion, line = ExpressionHelper.get_emotion_and_line(new_sentence)
                                     print(f"#{line}#")
+                                    print(f"emotion: {emotion}")
                                     vits_task = VITSTask(line.strip())
                                     if emotion in ExpressionHelper.emotion_to_expression:
                                         vits_task.pre_speaking_event = SpeakingEvent(SpeakingEvent.SET_EXPRESSION, emotion)
@@ -625,7 +626,8 @@ class ChatGPTProcess(multiprocessing.Process):
                     print(e)
                     if channel == 'chat':
                         if self.is_vits_enabled():
-                            text = "不好意思，刚才我走神了，请问你刚才说什么?"
+                            # text = "不好意思，刚才我走神了，请问你刚才说什么?"
+                            text = "牡蛎~刚才我又骨折了！"
                             task = VITSTask(text)
                             self.vits_task_queue.put(task)
 
@@ -635,7 +637,7 @@ class ChatGPTProcess(multiprocessing.Process):
                     _ = self.chat_queue.get()
 
                 # while not self.greeting_queue.empty():
-                    _ = self.greeting_queue.get()
+                    # _ = self.greeting_queue.get()
 
                 while not self.thanks_queue.empty():
                     _ = self.thanks_queue.get()
@@ -658,12 +660,16 @@ class ChatGPTProcess(multiprocessing.Process):
 
                         song_abbr = curr_song_dict['abbr']
                         editor_name = curr_song_dict['editor']
+                        id = curr_song_dict['id']
                         channel = "postsing"
 
                         if editor_name == '_':
                             editor_name = None
 
-                        system_msg = SystemMessageManager_1.get_finish_template(song_abbr, editor_name)
+                        if id == 666:
+                            system_msg = SystemMessageManager_1.get_finish_special_sm()
+                        else:
+                            system_msg = SystemMessageManager_1.get_finish_sm(song_abbr, editor_name)
                         chatbot.reset(convo_id=channel, system_prompt=system_msg)
                         
                         try:
@@ -689,10 +695,13 @@ class ChatGPTProcess(multiprocessing.Process):
                                     self.vits_task_queue.put(vits_task)
                         except Exception as e:
                             print(e)
-                            if editor_name is not None:
-                                post_sing_line = f"感谢各位朋友欣赏这首{song_abbr}，再次感谢{editor_name}大佬，是他教我唱得首歌！"
+                            if id != 666:
+                                if editor_name is not None:
+                                    post_sing_line = f"感谢各位朋友欣赏这首{song_abbr}，再次感谢{editor_name}大佬，是他教我唱得首歌！"
+                                else:
+                                    post_sing_line = f"感谢各位朋友欣赏这首{song_abbr}！"
                             else:
-                                post_sing_line = f"感谢各位朋友欣赏这首{song_abbr}！"
+                                post_sing_line = "请下次不要再激怒小爷了！"
 
                             vits_task = VITSTask(post_sing_line)
                             self.vits_task_queue.put(vits_task)
@@ -765,6 +774,7 @@ class ChatGPTProcess(multiprocessing.Process):
                             self.vits_task_queue.put(vits_task)
 
                     except Exception as e:
+                        print(e)
                         response_to_interuption_msg = f"十分感谢您的认可！要不要跟着小爷一起唱呢？"
                         if self.is_vits_enabled():
                             vits_task = VITSTask(response_to_interuption_msg, 
@@ -787,21 +797,25 @@ class SpeakingEvent:
         self.msg = msg
 
 
-preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。你说话简练。"
+preset_text_short = "现在赋予你一个身份，你是一位赛马娘，名字为东海帝皇，在B站直播间直播和观众聊天。你常用小爷来称呼自己。你说话简练。"
 
 class SystemMessageManager_1:
-    sing_accept_thank_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，这首歌是“{t_editor_name}”大佬教你唱的，你同意唱并且要答谢教你的大佬，这时你对这名观众说：（续写内容不要带“”）"
+    sing_accept_thank_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，这首歌是“{t_editor_name}”大佬教你唱的，你同意唱并且要答谢教你的大佬，这时你对这名观众说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
-    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（续写内容不要带“”）"
+    sing_accept_tempate = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。台下一名观众，叫“{t_user_name}”，点了一个首歌，名叫“{t_song_name}”，你会唱，并且同意唱，这时你对这名观众说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
     # 可以随机推荐歌曲，有个清单
-    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。台下一名观众，叫“{t_user_name}“，点了一个首歌，你不会唱，这时你对这名观众说：（续写内容不要带“”）"
+    sing_refuse_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。台下一名观众，叫“{t_user_name}“，点了一个首歌，你不会唱，这时你对这名观众说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
-    sing_finish_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”，是“{t_editor_name}”大佬教你唱的。这时，你要感谢台下观众的聆听，并再次感谢教你唱这首歌的大佬，你说：（续写内容不要用“”括起来！）"
+    sing_finish_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”，是“{t_editor_name}”大佬教你唱的。这时，你要感谢台下观众的聆听，并再次感谢教你唱这首歌的大佬，你说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
-    sing_finish_no_editor_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”。这时，你要感谢台下观众的聆听，你说：（续写内容不要用“”括起来！）"
+    sing_finish_no_editor_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，你常用小爷来称呼自己。你刚在胜利舞台上唱完一首歌，这首歌的名字是“{t_song_name}”。这时，你要感谢台下观众的聆听，你说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
-    sing_thanks = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上直播唱歌。你常用小爷来称呼自己。你说完一句话后偶尔说“哈基米”，“哈基米”不能出现在句首。如果有观众在你唱歌的时候现场送礼，点赞，或是关注了你的直播间，你会暂停唱歌，答谢观众。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。"
+    sing_thanks = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上直播唱歌。你常用小爷来称呼自己。如果有观众在你唱歌的时候现场送礼，点赞，或是关注了你的直播间，你会暂停唱歌，答谢观众。你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。"
+
+    speical_accept_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上准备唱歌。你常用小爷来称呼自己。台下一名观众，叫“{t_user_name}”，试图把你激怒，你对这名观众说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
+
+    speical_finish_template = "现在赋予你一个身份，你是一位赛马娘，名字是东海帝皇，正在胜利舞台上唱歌。你常用小爷来称呼自己。刚才你很生气，希望观众不要再激怒自己了，你向名观众们说：（你所有说话内容必须遵照以下规则：1. 必须用第一人称方式说话。2. 说话内容不要带第三人称方式描述的内容。3. 说话内容不要带任何动作描述。）"
 
     def get_presing_sm(user_name, song_name=None, editor_name=None):
         if song_name is not None:
@@ -814,11 +828,17 @@ class SystemMessageManager_1:
         else:
             return SystemMessageManager_1.sing_refuse_template.format(t_user_name=user_name)
         
-    def get_finish_template(song_name, editor_name=None):
+    def get_finish_sm(song_name, editor_name=None):
         if editor_name is not None:
             return SystemMessageManager_1.sing_finish_template.format(t_song_name=song_name, t_editor_name=editor_name)
         else:
             return SystemMessageManager_1.sing_finish_no_editor_template.format(t_song_name=song_name)
+    
+    def get_presing_special_sm(user_name):
+        return SystemMessageManager_1.speical_accept_template.format(t_user_name=user_name)
+    
+    def get_finish_special_sm():
+        return SystemMessageManager_1.speical_finish_template
 
 if __name__ == '__main__':
     app_state = multiprocessing.Value('i', AppState.CHAT)
@@ -841,7 +861,7 @@ if __name__ == '__main__':
     song_singer_process = song_singer.SongSingerProcess(sing_queue, cmd_queue, event_song_singer_process_initialized)
     song_singer_process.start()
 
-    vits_task_queue = multiprocessing.JoinableQueue()
+    vits_task_queue = multiprocessing.Queue()
 
     event_chat_gpt_process_initialized = multiprocessing.Event()
 
@@ -941,8 +961,7 @@ if __name__ == '__main__':
                 chat_queue.put(chat_task)
         elif app_state.value != AppState.CHAT:
             if user_input == "#唱歌结束":
-                # cmd_queue.put("#唱歌结束")
-                sing_queue.put("666切歌")
+                sing_queue.put("#切歌")
             elif user_input == "#一键三连":
                 cmd_queue.put("#一键三连")
             elif user_input == "#点赞":
@@ -954,21 +973,28 @@ if __name__ == '__main__':
     # Clear all queues
     clear_queue(chat_queue)
     chat_queue.put(None)
+    print("The chat_queue is cleared")
     clear_queue(vits_task_queue)
     vits_task_queue.put(None)
+    print("The vits_task_queue is cleared")
     clear_queue(audio_task_queue)
     audio_task_queue.put(None)
+    print("The audio_task_queue is cleared")
     clear_queue(subtitle_task_queue)
     subtitle_task_queue.put(None)
+    print("The subtitle_task_queue is cleared")
     clear_queue(sing_queue)
     sing_queue.put(None)
+    print("The sing_queue is cleared")
     clear_queue(cmd_queue)
     cmd_queue.put(None)
+    print("The cmd_queue is cleared")
     clear_queue(vts_api_queue)
     vts_api_queue.put(None)
+    print("The vts_api_queue is cleared")
 
-    vits_process.join()
-    print("vits_process is joined")
+    print("All queues are cleared")
+
     chat_gpt_process.join()
     print("chat_gpt_process is joined")
     damaku_process.join()
@@ -981,3 +1007,5 @@ if __name__ == '__main__':
     print("subtitle_bar_process is joined")
     vts_api_process.join()
     print("vts_api_process is joined")
+    vits_process.join()
+    print("vits_process is joined")

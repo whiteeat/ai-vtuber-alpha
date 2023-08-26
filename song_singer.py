@@ -25,7 +25,7 @@ class SongList:
             for line in lines:
                 song_info = line.decode().strip().split(",")
                 song = {
-                    'id': song_info[0],
+                    'id': int(song_info[0]),
                     'name': song_info[1],
                     'abbr': song_info[2],
                     'artist': song_info[3],
@@ -44,19 +44,29 @@ class SongList:
                 return None
             else:
                 if self.song_dicts:
+                    cur_song_index = 0
+                    # https://www.geeksforgeeks.org/using-else-conditional-statement-with-for-loop-in-python/
                     for song_dict in self.song_dicts:
-                        if query == song_dict['id']:
-                            self.cur_song_index = int(song_dict['id']) - 1
+                        try:
+                            query_id = int(query)
+                            if query_id == song_dict['id']:
+                                self.cur_song_index = cur_song_index
+                                return song_dict
+                        except:
+                            pass
+                        
+                        if query in song_dict['vox'] and query in song_dict['bgm']:
+                            self.cur_song_index = cur_song_index
                             return song_dict
-                        elif query in song_dict['vox'] and query in song_dict['bgm']:
-                            self.cur_song_index = int(song_dict['id']) - 1
-                            return song_dict
+                        cur_song_index += 1
                     else:
-                        self.cur_song_index = -1
                         print("抱歉！未找到该歌曲~")
                         return None
+                else:
+                    return None
         except Exception as e:
             print(f"search_song报错:{e}")
+            return None
 
 
 class SongPlayer:
@@ -309,18 +319,34 @@ class Display:
             self.screen.blit(text, (10, y))
         else:
             color = (0, 255, 255)
-            current_song = self.song_list.song_dicts[cur_show_index]['abbr'] + ' ' + \
-                           self.song_list.song_dicts[cur_show_index]['editor']
-            text = self.title_font.render(f"★" + current_song + f"★", True, color)
+            abbr = self.song_list.song_dicts[cur_show_index]['abbr']
+            editor = self.song_list.song_dicts[cur_show_index]['editor']
+            if editor == '_':
+                title = abbr
+            else:
+                title = abbr + ' ' + editor
+            text = self.title_font.render(f"★" + title + f"★", True, color)
             self.screen.blit(text, (10, y))
 
     def draw_vox_file_list(self, _y):
         for i in range(len(self.song_list.song_dicts)):
+            is_current_song = False
             if i == self.song_list.cur_song_index:
+                is_current_song = True
+
+            if is_current_song:
                 color = (0, 255, 127)
             else:
                 color = (255, 255, 255)
-            text = self.font.render(f'{i + 1}.' + self.song_list.song_dicts[i]['abbr'], True, color)
+
+            abbr = self.song_list.song_dicts[i]['abbr']
+            id = self.song_list.song_dicts[i]['id']
+
+            if not is_current_song:
+                if id == 666:
+                    abbr = "???"
+
+            text = self.font.render(f"{id}.{abbr}", True, color)
             ztx, zty, ztw, zth = text.get_rect()
             pos_rect = pygame.Rect(10, _y, ztw, zth)
             self.screen.blit(text, (pos_rect.x, pos_rect.y))
@@ -540,6 +566,9 @@ if __name__ == '__main__':
             cmd = input("请输入命令：点歌X(X:歌名/序号) #切歌 #暂停 #继续 #退出")
             sing_queue.put(cmd)
             
+            if cmd == "#退出":
+                time.sleep(1.0)
+
             if not song_singer_test_process.is_alive():
                 break
 

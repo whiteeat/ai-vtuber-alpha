@@ -5,6 +5,8 @@ import multiprocessing
 
 import submodules.blivedm.blivedm as blivedm
 
+from threading import Timer
+
 from app_utils import *
 
 class DanmakuProcess(multiprocessing.Process):
@@ -66,6 +68,7 @@ class ResponseHandler(blivedm.BaseHandler):
         self.thanks_queue = thanks_queue
 
         self.enable_response = enable_response
+        self.should_thank_gift = True
 
     # 入场和关注消息回调
     async def __interact_word_callback(self, client: blivedm.BLiveClient, command: dict):
@@ -156,10 +159,19 @@ class ResponseHandler(blivedm.BaseHandler):
             if self.enable_response.value:
                 task = ChatTask(user_name, msg, channel)
 
-                if self.thanks_queue.full():
-                    _ = self.thanks_queue.get()
+                def set_should_thank_gift():
+                    print("set_should_thank_gift is triggered!")
+                    self.should_thank_gift = True
 
-                self.thanks_queue.put(task)
+                if self.should_thank_gift:
+                    if self.thanks_queue.full():
+                        _ = self.thanks_queue.get()
+
+                    self.thanks_queue.put(task)
+                    self.should_thank_gift = False
+
+                    t = Timer(5.0, set_should_thank_gift)
+                    t.start()
 
     # async def _on_buy_guard(self, client: blivedm.BLiveClient, message: blivedm.GuardBuyMessage):
     #     print(f'[{client.room_id}] {message.username} 购买{message.gift_name}')
