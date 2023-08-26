@@ -13,9 +13,9 @@ class ExpressionHelper:
     #https://stackoverflow.com/questions/6388187/what-is-the-proper-way-to-format-a-multi-line-dict-in-python
     emotion_to_expression = {
         "非常开心": "eyesHappy",
-        "愉快": "eyesHappy",
-        # "伤心": "Sad",
-        # "生气": "Angry",
+        "愉悦": "eyesLaugh",
+        "伤心": "eyesUpset",
+        "生气": "eyesAngry",
         # "平静": "neutral"
     }
 
