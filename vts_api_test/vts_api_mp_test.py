@@ -179,6 +179,14 @@ if __name__ == "__main__":
             vts_api_task = VTSAPITask(msg_type, data_dict)
             vts_api_queue.put(vts_api_task)
             continue
+        elif user_input == '7':
+            msg_type = "HotkeyTriggerRequest"
+            data_dict = {
+                "hotkeyID": "MoveEars"
+            }
+            vts_api_task = VTSAPITask(msg_type, data_dict)
+            vts_api_queue.put(vts_api_task)
+            break
         elif user_input == '0':
             vts_api_queue.put(None)
             break
