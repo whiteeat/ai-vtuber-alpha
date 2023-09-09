@@ -6,10 +6,11 @@
 <!--- https://github.com/mattcone/markdown-guide/blob/master/_basic-syntax/line-breaks.md: two or more spaces--->
 - [1.0 Demo](https://www.bilibili.com/video/BV13L41197oZ)  
 ![Demo 1.0 Cover](./demo_1.0.png)
-- 2.0 Demo（施工中）
+- 2.0 Demo
   - [点歌系统](https://www.bilibili.com/video/BV1Rp4y157of)  
 ![Request songs Cover](./request_songs.jpg)
-  - 表情系统（敬请期待）
+  - [表情系统](https://www.bilibili.com/video/BV1ok4y1A7fb/)  
+![Expression](./expression.jpg)
 
 ## 项目功能和特点
 
