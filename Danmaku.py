@@ -3,7 +3,12 @@ import ctypes
 import asyncio
 import multiprocessing
 
+import http.cookies
+
+import aiohttp
+
 import submodules.blivedm.blivedm as blivedm
+import submodules.blivedm.blivedm.models.web as web_models
 
 from threading import Timer
 
@@ -19,18 +24,37 @@ class DanmakuProcess(multiprocessing.Process):
 
         self.handler = ResponseHandler(greeting_queue, chat_queue, thanks_queue, app_state, self.enable_response)
 
+        # https://blog.csdn.net/qq_28821897/article/details/132002110
+        # 这里填一个已登录账号的cookie。不填cookie也可以连接，但是收到弹幕的用户名会打码，UID会变成0
+        self.SESSDATA = ''
+        self.session = None
+
     async def main(self):
+        self.init_session()
+
         proc_name = self.name
         print(f"Initializing {proc_name}...")
         
-        # 如果SSL验证失败就把ssl设为False，B站真的有过忘续证书的情况
-        self.client = blivedm.BLiveClient(self.room_id, ssl=True)
-        self.client.add_handler(self.handler)
+        self.client = blivedm.BLiveClient(self.room_id, session=self.session)
+        self.client.set_handler(self.handler)
 
         self.client.start()
         self.task_check_exit = asyncio.create_task(self.check_exit())
 
-        await self.task_check_exit
+        try:
+            await self.task_check_exit
+        except Exception as e:
+            print(e)
+        finally:
+            await self.session.close()
+
+    def init_session(self):
+        cookies = http.cookies.SimpleCookie()
+        cookies['SESSDATA'] = self.SESSDATA
+        cookies['SESSDATA']['domain'] = 'bilibili.com'
+
+        self.session = aiohttp.ClientSession()
+        self.session.cookie_jar.update_cookies(cookies)
 
     async def check_exit(self):
         while True:
@@ -40,6 +64,8 @@ class DanmakuProcess(multiprocessing.Process):
                     print("DanmakuProcess should exit.")
                     self.client.stop()
                     await self.client.join()
+                except Exception as e:
+                    print(e)
                 finally:
                     await self.client.stop_and_close()
                 break
@@ -59,8 +85,8 @@ class ResponseHandler(blivedm.BaseHandler):
     def __init__(self, greeting_queue, chat_queue, thanks_queue, app_state, enable_response) -> None:
         super().__init__()
 
-        self._CMD_CALLBACK_DICT['INTERACT_WORD'] = self.__interact_word_callback
-        self._CMD_CALLBACK_DICT['LIKE_INFO_V3_CLICK'] = self.__like_callback
+        # self._CMD_CALLBACK_DICT['INTERACT_WORD'] = self.__interact_word_callback
+        # self._CMD_CALLBACK_DICT['LIKE_INFO_V3_CLICK'] = self.__like_callback
 
         self.app_state = app_state
         self.greeting_queue = greeting_queue
@@ -127,7 +153,7 @@ class ResponseHandler(blivedm.BaseHandler):
 
             self.thanks_queue.put(task)
 
-    async def _on_danmaku(self, client: blivedm.BLiveClient, message: blivedm.DanmakuMessage):
+    def _on_danmaku(self, client: blivedm.BLiveClient, message: web_models.DanmakuMessage):
         user_name = message.uname
         msg = message.msg
 
@@ -141,7 +167,7 @@ class ResponseHandler(blivedm.BaseHandler):
                 task = ChatTask(user_name, msg, channel)
                 self.chat_queue.put(task)
 
-    async def _on_gift(self, client: blivedm.BLiveClient, message: blivedm.GiftMessage):
+    async def _on_gift(self, client: blivedm.BLiveClient, message: web_models.GiftMessage):
         user_name = message.uname
         gift_name = message.gift_name
         gift_num = message.num
@@ -170,7 +196,7 @@ class ResponseHandler(blivedm.BaseHandler):
                     self.thanks_queue.put(task)
                     self.should_thank_gift = False
 
-                    t = Timer(5.0, set_should_thank_gift)
+                    t = Timer(10.0, set_should_thank_gift)
                     t.start()
 
     # async def _on_buy_guard(self, client: blivedm.BLiveClient, message: blivedm.GuardBuyMessage):
