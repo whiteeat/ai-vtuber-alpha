@@ -30,7 +30,7 @@ from system_message_manager import SystemMessageManager
 
 from vts_utils import ExpressionHelper, VTSAPIProcess, VTSAPITask
 
-from Danmaku import DanmakuProcess
+from danmaku import DanmakuProcess
 
 class VITSProcess(multiprocessing.Process):
     def __init__(

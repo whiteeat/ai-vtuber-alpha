@@ -24,7 +24,7 @@ class DanmakuProcess(multiprocessing.Process):
 
         self.handler = ResponseHandler(greeting_queue, chat_queue, thanks_queue, app_state, self.enable_response)
 
-        # https://blog.csdn.net/qq_28821897/article/details/132002110
+        # https://github.com/BilibiliVideoDownload/BilibiliVideoDownload/wiki/%E8%8E%B7%E5%8F%96SESSDATA
         # 这里填一个已登录账号的cookie。不填cookie也可以连接，但是收到弹幕的用户名会打码，UID会变成0
         self.SESSDATA = ''
         self.session = None
